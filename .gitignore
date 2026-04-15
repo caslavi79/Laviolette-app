@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.local
+
+# Env files (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+# But DO commit the example
+!.env.example
+
+# Supabase CLI artifacts
+supabase/.temp/
+supabase/.branches/
+
+# Editor / OS junk
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Generated Supabase types (regenerated on build)
+# src/types/database.ts  # uncomment if you want to exclude

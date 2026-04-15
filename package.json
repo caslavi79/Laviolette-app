@@ -1,0 +1,22 @@
+{
+  "name": "laviolette-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Single-user business management app for Laviolette LLC. React SPA + Supabase.",
+  "type": "module",
+  "author": "Case Laviolette",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "stripe-setup": "node --env-file-if-exists=.env.local scripts/stripe-setup.js",
+    "create-auth-user": "node --env-file-if-exists=.env.local scripts/create-auth-user.mjs",
+    "apply-migrations": "node --env-file-if-exists=.env.local scripts/apply-migrations.mjs",
+    "db:verify": "node --env-file-if-exists=.env.local scripts/verify-schema.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.20.0",
+    "stripe": "^22.0.1"
+  }
+}
