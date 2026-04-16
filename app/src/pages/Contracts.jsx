@@ -1,14 +1,287 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { fmtMoneyShort, fmtDate, daysUntil, badgeStyle, COLORS, colorForContractStatus } from '../lib/format'
+import EditContractModal from '../components/forms/EditContractModal'
+
 export default function Contracts() {
+  const [contracts, setContracts] = useState([])
+  const [clients, setClients] = useState([])
+  const [brands, setBrands] = useState([])
+  const [projects, setProjects] = useState([])
+  const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [selected, setSelected] = useState(null)
+  const [modal, setModal] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [sendBusy, setSendBusy] = useState(false)
+  const [sendResult, setSendResult] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [cRes, clRes, brRes, prRes] = await Promise.all([
+      supabase.from('contracts').select('*, clients(id, name, legal_name), brands(id, name, color)').order('updated_at', { ascending: false }),
+      supabase.from('clients').select('id, name, legal_name').order('name'),
+      supabase.from('brands').select('id, name, client_id').order('name'),
+      supabase.from('projects').select('id, name, type, brand_id, total_fee, brands(id, name, client_id)').order('name'),
+    ])
+    setContracts(cRes.data || [])
+    setClients(clRes.data || [])
+    setBrands(brRes.data || [])
+    setProjects(prRes.data || [])
+    setLoading(false)
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return contracts.filter((c) => {
+      if (filterStatus !== 'all' && c.status !== filterStatus) return false
+      if (!q) return true
+      return [c.name, c.clients?.name, c.clients?.legal_name, c.brands?.name].filter(Boolean).join(' ').toLowerCase().includes(q)
+    })
+  }, [contracts, search, filterStatus])
+
+  const picked = contracts.find((c) => c.id === selected)
+
+  const sendForSigning = async (contract) => {
+    setSendBusy(true); setSendResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated.')
+      const base = import.meta.env.VITE_SUPABASE_URL
+      const resp = await fetch(`${base}/functions/v1/contract-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ contract_id: contract.id }),
+      })
+      if (!resp.ok) {
+        const text = await resp.text()
+        throw new Error(text || `HTTP ${resp.status}`)
+      }
+      const data = await resp.json()
+      setSendResult({ ok: true, ...data })
+      load()
+    } catch (e) {
+      // Edge function not live yet — fall back to manually updating the row + surfacing URL.
+      const origin = window.location.origin
+      const url = `${origin}/sign?token=${contract.sign_token}`
+      await supabase.from('contracts').update({
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+      }).eq('id', contract.id)
+      setSendResult({
+        ok: false,
+        warning: `Edge function not deployed yet — simulated send. Share this URL manually:`,
+        error: e.message,
+        url,
+      })
+      load()
+    } finally { setSendBusy(false) }
+  }
+
   return (
-    <div className="contracts">
+    <div className="contracts-page">
       <div className="page-header">
         <span className="eyebrow">Contracts</span>
-        <h1>Drafts, Sent &amp; Signed</h1>
-        <p>Template-based contracts with in-browser signing. Coming in Phase&nbsp;3.6.</p>
+        <h1>Drafts · Sent · Signed</h1>
+        <p>Build-out and retainer agreements. Send for in-browser signing when ready.</p>
       </div>
-      <div className="card">
-        <p style={{ color: 'var(--text-md)' }}>Placeholder.</p>
+
+      <div className="list-toolbar">
+        <input
+          type="search"
+          className="toolbar-search"
+          placeholder="Search name, client, brand…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="toolbar-filters">
+          {['all', 'draft', 'sent', 'signed', 'active', 'expired', 'terminated'].map((s) => (
+            <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} onClick={() => setFilterStatus(s)}>{s}</button>
+          ))}
+        </div>
+        <button
+          className="btn btn-primary"
+          onClick={() => setModal({ kind: 'contract' })}
+          disabled={clients.length === 0}
+          title={clients.length === 0 ? 'Add a client first.' : ''}
+        >
+          + New contract
+        </button>
       </div>
+
+      <div className="contracts-split">
+        <div className="contacts-list-wrap">
+          {loading ? <div className="loading" style={{ minHeight: 120 }}>Loading…</div>
+            : visible.length === 0 ? (
+              <div className="empty-state">
+                {contracts.length === 0 ? (
+                  <>
+                    <p>No contracts yet.</p>
+                    <button className="cta-link" onClick={() => setModal({ kind: 'contract' })}>+ New contract →</button>
+                  </>
+                ) : <p>No matches.</p>}
+              </div>
+            ) : (
+              <ul className="contracts-list">
+                {visible.map((c) => {
+                  const expiresIn = c.end_date ? daysUntil(c.end_date) : null
+                  return (
+                    <li key={c.id} className={`contract-row ${selected === c.id ? 'selected' : ''}`} onClick={() => { setSelected(c.id); setSendResult(null) }}>
+                      <div className="contract-row-name">{c.name}</div>
+                      <div className="contract-row-meta">
+                        <span>{c.clients?.legal_name || c.clients?.name || '—'}</span>
+                        <span>{c.type}</span>
+                      </div>
+                      <div className="contract-row-footer">
+                        <span style={badgeStyle(colorForContractStatus(c.status))}>{c.status}</span>
+                        {c.status === 'active' && expiresIn !== null && expiresIn <= (c.renewal_notice_days ?? 30) && (
+                          <span className="contract-expiring">expires in {expiresIn}d</span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )
+          }
+        </div>
+
+        <div className="contacts-detail-wrap">
+          {!picked ? (
+            <div className="empty-state detail-empty"><p>Select a contract to view details, edit, or send for signing.</p></div>
+          ) : (
+            <ContractDetail
+              contract={picked}
+              onEdit={() => setModal({ kind: 'contract', data: picked })}
+              onSend={() => sendForSigning(picked)}
+              sendBusy={sendBusy}
+              sendResult={sendResult}
+              onDismissSend={() => setSendResult(null)}
+            />
+          )}
+        </div>
+      </div>
+
+      {modal?.kind === 'contract' && (
+        <EditContractModal
+          contract={modal.data}
+          clients={clients}
+          brands={brands}
+          projects={projects}
+          onClose={() => setModal(null)}
+          onSaved={(row, action) => {
+            load()
+            if (action === 'created') setSelected(row.id)
+            if (action === 'deleted') setSelected(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDismissSend }) {
+  const canSend = (contract.status === 'draft' || contract.status === 'sent') && contract.filled_html && contract.signer_email
+  const isSigned = contract.status === 'signed' || contract.status === 'active'
+
+  return (
+    <div className="detail-pane">
+      <div className="detail-header">
+        <div>
+          <div className="detail-kind">
+            Contract · {contract.type} · {contract.brands?.name || '—'}
+          </div>
+          <h2>{contract.name}</h2>
+          <div className="detail-sub">
+            {contract.clients?.legal_name || contract.clients?.name}
+            {contract.effective_date && <span>Effective {fmtDate(contract.effective_date)}</span>}
+            {contract.end_date && <span>Ends {fmtDate(contract.end_date)}</span>}
+          </div>
+        </div>
+        <div className="detail-header-actions">
+          <span style={badgeStyle(colorForContractStatus(contract.status))}>{contract.status}</span>
+          <button className="btn btn-link" onClick={onEdit}>Edit</button>
+        </div>
+      </div>
+
+      <div className="contract-money">
+        {contract.type === 'buildout' && contract.total_fee != null && (
+          <div><span className="eyebrow">Total</span><strong>{fmtMoneyShort(contract.total_fee)}</strong></div>
+        )}
+        {contract.type === 'retainer' && contract.monthly_rate != null && (
+          <div><span className="eyebrow">Monthly rate</span><strong>{fmtMoneyShort(contract.monthly_rate)}/mo</strong></div>
+        )}
+        {contract.termination_fee != null && (
+          <div><span className="eyebrow">Termination fee</span><strong>{fmtMoneyShort(contract.termination_fee)}</strong></div>
+        )}
+        {contract.payment_terms && (
+          <div><span className="eyebrow">Terms</span><strong style={{ fontSize: 14 }}>{contract.payment_terms}</strong></div>
+        )}
+      </div>
+
+      {contract.notes && <div className="detail-note">{contract.notes}</div>}
+
+      {/* Send for signing */}
+      {canSend && (
+        <div className="contract-send-row">
+          <button className="btn btn-primary" onClick={onSend} disabled={sendBusy}>
+            {sendBusy ? 'Sending…' : contract.status === 'sent' ? 'Resend for signing' : 'Send for signing'}
+          </button>
+          <span className="contract-send-hint">Emails {contract.signer_email} a signing link.</span>
+        </div>
+      )}
+      {sendResult && (
+        <div className={sendResult.ok ? 'send-result send-result--ok' : 'send-result send-result--warn'}>
+          {sendResult.ok ? (
+            <>✓ Sent to {contract.signer_email}</>
+          ) : (
+            <>
+              <div style={{ fontWeight: 500, marginBottom: 6 }}>{sendResult.warning}</div>
+              <div className="bank-link-url">{sendResult.url}</div>
+              {sendResult.error && <div style={{ fontSize: 11, marginTop: 6, color: 'var(--text-lo)' }}>({sendResult.error})</div>}
+            </>
+          )}
+          <button className="btn btn-link" onClick={onDismissSend}>Dismiss</button>
+        </div>
+      )}
+
+      {/* Signature section */}
+      {isSigned && (
+        <div className="signature-panel">
+          <div className="panel-header">
+            <span className="eyebrow">Signature</span>
+          </div>
+          <div className="signature-meta">
+            {contract.signer_name && <div><span className="eyebrow">Signer</span><strong>{contract.signer_name}</strong></div>}
+            {contract.signed_at && <div><span className="eyebrow">Signed at</span><strong>{fmtDate(contract.signed_at, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</strong></div>}
+            {contract.signer_ip && <div><span className="eyebrow">From IP</span><strong style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{contract.signer_ip}</strong></div>}
+          </div>
+          {contract.signature_data && (
+            <div className="signature-image">
+              <img src={contract.signature_data} alt="Signature" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {contract.filled_html ? (
+        <div className="contract-preview">
+          <div className="panel-header">
+            <span className="eyebrow">Contract content</span>
+          </div>
+          <div className="contract-preview-body" dangerouslySetInnerHTML={{ __html: contract.filled_html }} />
+        </div>
+      ) : (
+        <div className="empty-state" style={{ padding: 16 }}>
+          <p>No content yet. Add filled HTML in the edit panel before sending for signing.</p>
+          <button className="cta-link" onClick={onEdit}>Add content →</button>
+        </div>
+      )}
     </div>
   )
 }
