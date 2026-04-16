@@ -11,7 +11,7 @@ function env(key: string): string {
 }
 const SUPABASE_URL = env('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY')
-const SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+const SECRET = env('REMINDERS_SECRET')
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 

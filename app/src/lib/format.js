@@ -3,7 +3,9 @@
 
 export function fmtMoney(n) {
   if (n == null || n === '') return '—'
-  return `$${parseFloat(n).toLocaleString(undefined, {
+  const v = parseFloat(n)
+  if (!Number.isFinite(v)) return '—'
+  return `$${v.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
@@ -20,6 +22,11 @@ export function fmtMoneyShort(n) {
 
 export function fmtDate(d, opts = { month: 'short', day: 'numeric', year: 'numeric' }) {
   if (!d) return '—'
+  // If opts include time fields AND the input has a T (timestamp), use the full timestamp
+  const hasTimeOpts = opts.hour || opts.minute || opts.second
+  if (hasTimeOpts && typeof d === 'string' && d.includes('T')) {
+    return new Date(d).toLocaleString('en-US', opts)
+  }
   const raw = typeof d === 'string' && d.includes('T') ? d.split('T')[0] : d
   const [y, m, day] = String(raw).split('-').map(Number)
   const dt = new Date(y, m - 1, day)
@@ -90,6 +97,7 @@ export function colorForInvoiceStatus(status) {
     case 'overdue':         return COLORS.red
     case 'pending':         return COLORS.amber
     case 'sent':            return COLORS.slate
+    case 'draft':           return COLORS.steel
     case 'void':            return COLORS.slate
     default:                return COLORS.steel
   }
@@ -100,6 +108,7 @@ export function colorForContractStatus(status) {
     case 'active':     return COLORS.green
     case 'signed':     return COLORS.green
     case 'sent':       return COLORS.amber
+    case 'draft':      return COLORS.steel
     case 'expired':    return COLORS.slate
     case 'terminated': return COLORS.red
     default:           return COLORS.steel
@@ -112,6 +121,7 @@ export function colorForProjectStatus(status) {
     case 'complete':  return COLORS.green
     case 'paused':    return COLORS.amber
     case 'cancelled': return COLORS.red
+    case 'draft':     return COLORS.steel
     default:          return COLORS.steel
   }
 }

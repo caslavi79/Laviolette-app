@@ -34,7 +34,7 @@ const BRAND_COLOR = Deno.env.get('BRAND_COLOR') || '#B8845A'
 const BRAND_BG = Deno.env.get('BRAND_BG') || '#12100D'
 const BRAND_INK = Deno.env.get('BRAND_INK') || '#F4F0E8'
 const CASE_EMAIL = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.com'
-const REMINDERS_SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+const REMINDERS_SECRET = env('REMINDERS_SECRET')
 const APP_URL = Deno.env.get('APP_URL') || 'https://app.laviolette.io'
 
 const TZ = 'America/Denver'

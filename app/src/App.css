@@ -17,7 +17,7 @@
   --cream:      #F0EBE1;
   --text-hi:    rgba(244, 240, 232, 1);
   --text-md:    rgba(240, 235, 225, 0.68);
-  --text-lo:    rgba(240, 235, 225, 0.42);
+  --text-lo:    rgba(240, 235, 225, 0.55);
   --text-ghost: rgba(240, 235, 225, 0.16);
 
   /* Accents */
@@ -1245,8 +1245,9 @@ body.modal-open { overflow: hidden; }
   border-radius: var(--r-1);
   font-size: 11px;
   color: var(--cream);
-  white-space: pre-wrap;
+  
   word-break: break-all;
+  white-space: pre-wrap;
 }
 
 /* Brand card ------------------------------------------------ */
@@ -1625,10 +1626,11 @@ body.modal-open { overflow: hidden; }
   border: 1px solid var(--border);
   border-radius: var(--r-1);
   padding: 16px 18px;
-  white-space: pre-wrap;
+  
   word-wrap: break-word;
   max-height: 480px;
   overflow-y: auto;
+  white-space: pre-wrap;
 }
 
 /* Mobile ---------------------------------------------------- */
@@ -2338,7 +2340,7 @@ body.modal-open { overflow: hidden; }
   font-size: 14px;
   line-height: 1.6;
   color: var(--cream);
-  white-space: pre-wrap;
+  
   font-family: var(--sans);
 }
 .contract-preview-body h1, .contract-preview-body h2, .contract-preview-body h3 {
@@ -2534,7 +2536,7 @@ body.modal-open { overflow: hidden; }
   margin-bottom: 36px;
   max-height: 60vh;
   overflow-y: auto;
-  white-space: pre-wrap;
+  
 }
 .sign-content h1, .sign-content h2, .sign-content h3 {
   font-family: var(--serif);

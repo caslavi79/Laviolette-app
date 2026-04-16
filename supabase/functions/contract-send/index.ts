@@ -133,12 +133,12 @@ Deno.serve(async (req: Request) => {
     const emailResult = await emailRes.json()
     if (!emailRes.ok) {
       console.error('Resend error:', JSON.stringify(emailResult))
-      return json({ success: false, error: 'Failed to send email', details: emailResult }, 500, corsHeaders)
+      return json({ success: false, error: 'Failed to send email' }, 500, corsHeaders)
     }
 
-    return json({ success: true, signing_url: signingUrl, email: emailResult }, 200, corsHeaders)
+    return json({ success: true, signing_url: signingUrl }, 200, corsHeaders)
   } catch (err) {
     console.error('contract-send error:', err)
-    return json({ success: false, error: String((err as Error).message || err) }, 500, corsHeaders)
+    return json({ success: false, error: 'Internal error' }, 500, corsHeaders)
   }
 })

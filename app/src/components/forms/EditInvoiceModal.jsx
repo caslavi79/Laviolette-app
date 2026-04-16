@@ -26,7 +26,7 @@ export default function EditInvoiceModal({ invoice, clients, brands, projects, o
     description: invoice?.description || '',
     line_items: invoice?.line_items?.length > 0 ? invoice.line_items : [blankLine()],
     tax: invoice?.tax ?? 0,
-    status: invoice?.status || 'pending',
+    status: invoice?.status || 'draft',
     due_date: invoice?.due_date || new Date().toISOString().slice(0, 10),
     notes: invoice?.notes || '',
   })

@@ -14,7 +14,7 @@ function env(key: string): string {
 }
 const SUPABASE_URL = env('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY')
-const SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+const SECRET = env('REMINDERS_SECRET')
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -42,11 +42,12 @@ Deno.serve(async (req: Request) => {
   const today = todayMT()
   const fiveBD = businessDaysAgo(5)
 
-  // Transition pending → overdue
+  // Transition pending/sent → overdue (sent invoices that pass due_date
+  // without being paid should also be flagged — fixes the sent→pending gap)
   const { data: flipped, error: e1 } = await admin
     .from('invoices')
     .update({ status: 'overdue', updated_at: new Date().toISOString() })
-    .eq('status', 'pending')
+    .in('status', ['pending', 'sent'])
     .lt('due_date', today)
     .select('id')
 

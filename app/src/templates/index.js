@@ -13,7 +13,7 @@ function monthsBetween(start, end) {
   // Inclusive: May 1 → July 31 = 3 months (May, June, July)
   let months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
   if (e.getDate() >= 28) months += 1
-  return months > 0 ? String(months) : '3'
+  return months > 0 ? String(months) : '1'
 }
 
 function numberWord(n) {
