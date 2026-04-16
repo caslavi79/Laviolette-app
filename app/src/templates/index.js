@@ -3,8 +3,8 @@
  * Each entry describes a template that the ContractEditor can render.
  */
 
-import { generateRetainerHTML, buildServicesTable } from './retainer'
-import { generateBuildoutHTML, buildDeliverablesTable } from './buildout'
+import { generateRetainerHTML, buildServicesTable } from './retainer.js'
+import { generateBuildoutHTML, buildDeliverablesTable } from './buildout.js'
 
 function monthsBetween(start, end) {
   if (!start || !end) return ''

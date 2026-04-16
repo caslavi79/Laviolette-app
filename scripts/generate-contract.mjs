@@ -116,6 +116,11 @@ try {
     deliverables = rows
   }
 
+  // Convert Date objects to ISO date strings (pg returns Date objects for date columns)
+  for (const key of ['start_date', 'end_date', 'intro_term_end']) {
+    if (project[key] instanceof Date) project[key] = project[key].toISOString().slice(0, 10)
+  }
+
   // Build variables
   const brand = { name: project.brand_name, color: project.brand_color }
   const clientObj = {
