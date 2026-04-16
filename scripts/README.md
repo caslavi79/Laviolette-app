@@ -56,4 +56,46 @@ npm run stripe-setup -- cus_ULBcilbNsoq0Kp "Velvet Leaf Lounge LLC"
 
 ## create-auth-user.mjs
 
-*(Will be added in Phase 1.)* One-time bootstrap to create `case.laviolette@gmail.com` in Supabase Auth using the service role key. Case resets the password via Supabase dashboard after first login.
+One-time bootstrap to create `case.laviolette@gmail.com` in Supabase Auth using the service role key. On success, prints a temporary password **once** — record it immediately. Reset the password via Supabase Dashboard → Auth → Users.
+
+```bash
+npm run create-auth-user
+```
+
+## apply-migrations.mjs
+
+Applies every `.sql` file in `supabase/migrations/` to the Postgres DB via a direct connection on port 5432 (pooler fallback on port 6543). Tracks applied migrations in `public._claude_migrations`, so re-runs are idempotent.
+
+```bash
+npm run apply-migrations              # apply all new migrations
+npm run apply-migrations -- --dry-run # show the plan without touching the DB
+npm run apply-migrations -- --pooler  # force pooler connection
+```
+
+Each migration runs inside a transaction — if any statement fails the whole file rolls back.
+
+## verify-schema.mjs
+
+Read-only sanity check that the schema is in good shape. Reports:
+
+- Every `public.*` table with column count and whether it has a `COMMENT`
+- Column-comment coverage (should be 100%)
+- All enum types
+- All `idx_*` indexes
+- All triggers + functions
+- RLS status + policy count per table
+- Storage buckets
+- A handful of spec-reference queries (should all return rows or succeed)
+- A live trigger smoke test that creates a throwaway contact → client → brand → project → deliverable, verifies the `briefing_md` auto-regen + `auto_complete_project` triggers fire, and rolls back
+
+```bash
+npm run db:verify
+```
+
+## deploy-edge.sh
+
+Deploys all 10 Supabase Edge Functions with `--no-verify-jwt` (required — several are public or invoked by cron). See [OPS.md](../OPS.md) for prerequisites (Supabase CLI auth, secrets, pg_cron/pg_net extensions).
+
+```bash
+bash scripts/deploy-edge.sh
+```
