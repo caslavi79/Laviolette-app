@@ -2347,31 +2347,27 @@ body.modal-open { overflow: hidden; }
 .signature-image img { display: block; max-width: 100%; height: auto; }
 
 .contract-preview {
-  background: var(--surface-1);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-2);
-  padding: 20px 24px;
+  padding: 28px;
 }
+/* The contract content lives in a white sandbox — no app theme bleeds in.
+ * The contract HTML itself uses .contract-doc with `all: initial` to fully
+ * isolate from inherited app styles. The white card has generous inner
+ * padding so the text doesn't touch the edges (looks like a real document). */
 .contract-preview-body {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--cream);
-  
-  font-family: var(--sans);
+  background: #fff;
+  border-radius: var(--r-1);
+  padding: 56px 64px;
+  max-height: 78vh;
+  overflow-y: auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
-.contract-preview-body h1, .contract-preview-body h2, .contract-preview-body h3 {
-  font-family: var(--serif);
-  color: var(--ivory);
-  margin: 16px 0 8px;
-  font-weight: 500;
+@media (max-width: 700px) {
+  .contract-preview { padding: 14px; }
+  .contract-preview-body { padding: 32px 24px; }
 }
-.contract-preview-body h1 { font-size: 24px; }
-.contract-preview-body h2 { font-size: 20px; }
-.contract-preview-body h3 { font-size: 17px; }
-.contract-preview-body p { margin: 10px 0; }
-.contract-preview-body ul, .contract-preview-body ol { padding-left: 24px; margin: 10px 0; }
-.contract-preview-body li { margin: 4px 0; }
-.contract-preview-body strong { color: var(--ivory); font-weight: 500; }
 
 @media (max-width: 900px) {
   .contracts-split { grid-template-columns: 1fr; }
@@ -2541,31 +2537,17 @@ body.modal-open { overflow: hidden; }
   color: var(--text-md);
   margin-bottom: 36px;
 }
+/* The contract content on the public sign page renders in a white sandbox.
+ * The contract HTML uses .contract-doc with `all: initial` to fully isolate
+ * from the dark Laviolette theme — clients see a clean white legal document. */
 .sign-content {
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: #fff;
   border-radius: var(--r-2);
-  padding: 32px 36px;
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--cream);
+  padding: 0;
   margin-bottom: 36px;
-  max-height: 60vh;
+  max-height: 70vh;
   overflow-y: auto;
-  
 }
-.sign-content h1, .sign-content h2, .sign-content h3 {
-  font-family: var(--serif);
-  color: var(--ivory);
-  font-weight: 500;
-  margin: 18px 0 8px;
-}
-.sign-content h1 { font-size: 24px; }
-.sign-content h2 { font-size: 20px; }
-.sign-content h3 { font-size: 17px; }
-.sign-content p { margin: 10px 0; }
-.sign-content strong { color: var(--ivory); font-weight: 500; }
-.sign-content ul, .sign-content ol { padding-left: 24px; margin: 10px 0; }
 
 .sign-form {
   background: var(--surface-1);

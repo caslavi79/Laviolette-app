@@ -17,6 +17,7 @@
     "db:verify": "node --env-file-if-exists=.env.local scripts/verify-schema.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.103.3",
     "pg": "^8.20.0",
     "stripe": "^22.0.1"
   }

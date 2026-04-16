@@ -264,6 +264,9 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
         <div className="signature-panel">
           <div className="panel-header">
             <span className="eyebrow">Signature</span>
+            {contract.file_path && (
+              <DownloadSignedButton filePath={contract.file_path} />
+            )}
           </div>
           <div className="signature-meta">
             {contract.signer_name && <div><span className="eyebrow">Signer</span><strong>{contract.signer_name}</strong></div>}
@@ -285,6 +288,10 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
           </div>
           <div className="contract-preview-body" dangerouslySetInnerHTML={{ __html: contract.filled_html }} />
         </div>
+      ) : contract.file_path ? (
+        <div className="empty-state" style={{ padding: 16 }}>
+          <p>This contract was signed externally. The original signed PDF is stored — download it from the signature panel above.</p>
+        </div>
       ) : (
         <div className="empty-state" style={{ padding: 16 }}>
           <p>No content yet. Add filled HTML in the edit panel before sending for signing.</p>
@@ -292,5 +299,31 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
         </div>
       )}
     </div>
+  )
+}
+
+function DownloadSignedButton({ filePath }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const handle = async () => {
+    setBusy(true); setErr('')
+    try {
+      const { data, error } = await supabase.storage.from('contracts').createSignedUrl(filePath, 60)
+      if (error) throw error
+      // Open in new tab — most browsers will preview the PDF inline
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <button className="btn btn-link" onClick={handle} disabled={busy}>
+        {busy ? 'Loading…' : '↓ Download signed PDF'}
+      </button>
+      {err && <span style={{ color: 'var(--red)', fontSize: 11, marginLeft: 8 }}>{err}</span>}
+    </>
   )
 }

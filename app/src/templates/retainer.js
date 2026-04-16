@@ -20,20 +20,24 @@
  */
 
 const CSS = `
-  .contract-doc { font-family: 'Times New Roman', Georgia, serif; font-size: 14px; line-height: 1.65; color: #1a1a1a; max-width: 720px; margin: 0 auto; }
-  .contract-doc h1 { font-size: 22px; text-align: center; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
-  .contract-doc .subtitle { text-align: center; font-size: 16px; margin-bottom: 2px; }
-  .contract-doc .meta { text-align: center; font-size: 13px; color: #555; margin-bottom: 4px; }
-  .contract-doc h2 { font-size: 18px; margin: 32px 0 12px; }
-  .contract-doc h3 { font-size: 15px; margin: 20px 0 8px; }
-  .contract-doc p { margin: 10px 0; }
-  .contract-doc table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-  .contract-doc th, .contract-doc td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; font-size: 13px; }
-  .contract-doc th { background: #f5f5f5; font-weight: 600; }
-  .contract-doc .sig-block { margin-top: 48px; }
-  .contract-doc .sig-line { border-top: 1px solid #333; width: 300px; margin: 32px 0 4px; }
-  .contract-doc .sig-name { font-weight: 600; }
-  .contract-doc .footer { text-align: center; font-size: 11px; color: #999; margin-top: 40px; padding-top: 16px; border-top: 1px solid #ddd; }
+  .contract-doc { all: initial; display: block; font-family: 'Times New Roman', Georgia, serif; font-size: 14px; line-height: 1.6; color: #1a1a1a; background: #fff; max-width: 720px; margin: 0 auto; }
+  .contract-doc * { color: #1a1a1a; }
+  .contract-doc h1 { font-family: inherit; font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 6px; letter-spacing: 0.5px; }
+  .contract-doc .subtitle { text-align: center; font-size: 15px; font-weight: 400; margin-bottom: 2px; }
+  .contract-doc .meta { text-align: center; font-size: 12px; color: #555; margin-bottom: 2px; font-weight: 400; }
+  .contract-doc .meta * { color: #555; }
+  .contract-doc h2 { font-family: inherit; font-size: 16px; font-weight: 700; margin: 28px 0 10px; }
+  .contract-doc h3 { font-family: inherit; font-size: 13px; font-weight: 700; margin: 18px 0 6px; }
+  .contract-doc p { margin: 8px 0; }
+  .contract-doc strong { font-weight: 700; }
+  .contract-doc table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  .contract-doc th, .contract-doc td { border: 1px solid #999; padding: 7px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+  .contract-doc th { background: #efefef; font-weight: 700; }
+  .contract-doc .sig-block { margin-top: 40px; }
+  .contract-doc .sig-line { border: none; border-top: 1px solid #333; width: 300px; margin: 28px 0 4px; height: 0; }
+  .contract-doc .sig-name { font-weight: 700; }
+  .contract-doc .footer { text-align: center; font-size: 10px; color: #888; margin-top: 36px; padding-top: 12px; border-top: 1px solid #ddd; }
+  .contract-doc .footer * { color: #888; }
 `
 
 export function generateRetainerHTML(v, t = {}) {
