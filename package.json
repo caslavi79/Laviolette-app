@@ -12,6 +12,7 @@
   "scripts": {
     "stripe-setup": "node --env-file-if-exists=.env.local scripts/stripe-setup.js",
     "create-auth-user": "node --env-file-if-exists=.env.local scripts/create-auth-user.mjs",
+    "generate-contract": "node --env-file-if-exists=.env.local scripts/generate-contract.mjs",
     "apply-migrations": "node --env-file-if-exists=.env.local scripts/apply-migrations.mjs",
     "db:verify": "node --env-file-if-exists=.env.local scripts/verify-schema.mjs"
   },
