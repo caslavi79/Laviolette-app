@@ -1,0 +1,451 @@
+/* ============================================================
+   Laviolette HQ — App styles
+   Brand tokens match laviolette.io (Cormorant Garamond +
+   DM Sans + Barlow Condensed; ivory on deep base #12100D with
+   copper accents).
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --base:       #12100D;
+  --surface-1:  #18150F;
+  --surface-2:  #1F1B14;
+  --surface-3:  #28231B;
+
+  /* Ink */
+  --ivory:      #F4F0E8;
+  --cream:      #F0EBE1;
+  --text-hi:    rgba(244, 240, 232, 1);
+  --text-md:    rgba(240, 235, 225, 0.68);
+  --text-lo:    rgba(240, 235, 225, 0.42);
+  --text-ghost: rgba(240, 235, 225, 0.16);
+
+  /* Accents */
+  --copper:     #B8845A;
+  --copper-dim: rgba(184, 132, 90, 0.55);
+  --copper-soft:rgba(184, 132, 90, 0.12);
+  --navy:       #1D2E4A;
+  --charcoal:   #3A3530;
+
+  /* Status */
+  --green:      #6E8F5A;
+  --amber:      #C9922E;
+  --red:        #C25A4E;
+  --steel:      #929BAA;
+  --slate:      #7A8490;
+
+  /* Borders */
+  --border:     rgba(240, 235, 225, 0.08);
+  --border-strong: rgba(240, 235, 225, 0.18);
+
+  /* Typography */
+  --serif:      'Cormorant Garamond', Georgia, serif;
+  --sans:       'DM Sans', -apple-system, Helvetica, sans-serif;
+  --label:      'Barlow Condensed', sans-serif;
+
+  /* Spacing scale */
+  --s-0: 0;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* Radii */
+  --r-1: 3px;
+  --r-2: 6px;
+  --r-3: 10px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+*:focus-visible { outline: 2px solid var(--copper); outline-offset: 2px; }
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--sans);
+  background: var(--base);
+  color: var(--cream);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+
+.skip-link {
+  position: absolute; top: -100%; left: 16px;
+  background: var(--surface-2); color: var(--ivory);
+  padding: 8px 16px; border-radius: var(--r-1);
+  z-index: 9999; font-family: var(--label);
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+.skip-link:focus { top: 8px; }
+
+/* ============================================================
+   LOADING
+   ============================================================ */
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+  font-family: var(--label);
+  font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+/* ============================================================
+   LOGIN
+   ============================================================ */
+.login-page {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: var(--base);
+}
+.login-card { width: 100%; max-width: 400px; text-align: center; }
+.login-mark {
+  font-family: var(--serif);
+  font-size: 22px; letter-spacing: 0.1em;
+  opacity: 0.55; margin-bottom: 40px;
+}
+.login-mark .L { color: var(--ivory); font-weight: 400; }
+.login-mark .v { color: var(--copper); font-weight: 500; }
+.login-card h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  color: var(--ivory);
+  margin-bottom: 6px;
+}
+.login-sub {
+  color: var(--text-md);
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: var(--label);
+  margin-bottom: 36px;
+}
+.login-form { display: flex; flex-direction: column; gap: 16px; }
+.login-field { text-align: left; }
+.login-field label {
+  display: block;
+  font-family: var(--label);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-md);
+  margin-bottom: 6px;
+}
+.login-field input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 15px;
+  padding: 14px 16px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--ivory);
+  transition: border-color 0.2s;
+}
+.login-field input:focus {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+  border-color: var(--copper);
+}
+.login-field input::placeholder { color: var(--text-lo); }
+.login-password-wrap { position: relative; }
+.login-password-wrap input { padding-right: 64px; }
+.login-toggle-pw {
+  position: absolute; right: 12px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none;
+  color: var(--text-md);
+  font-family: var(--label);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 4px;
+}
+.login-toggle-pw:hover { color: var(--ivory); }
+.login-error {
+  color: var(--red);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: var(--r-1);
+  background: rgba(194, 90, 78, 0.1);
+  border: 1px solid rgba(194, 90, 78, 0.25);
+  text-align: left;
+}
+.login-success {
+  color: var(--green);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: var(--r-1);
+  background: rgba(110, 143, 90, 0.12);
+  border: 1px solid rgba(110, 143, 90, 0.25);
+}
+.login-btn {
+  background: var(--copper);
+  color: var(--base);
+  border: none;
+  padding: 14px 20px;
+  border-radius: var(--r-1);
+  font-family: var(--label);
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+.login-btn:hover:not(:disabled) { background: #C7946A; }
+.login-btn:disabled { opacity: 0.5; cursor: default; }
+.login-forgot {
+  background: none; border: none;
+  color: var(--text-md);
+  font-family: var(--label);
+  font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 6px;
+  align-self: center;
+}
+.login-forgot:hover { color: var(--copper); }
+
+/* ============================================================
+   APP LAYOUT
+   ============================================================ */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--base);
+}
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: 28px 16px 20px;
+}
+.sidebar-brand {
+  font-family: var(--serif);
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  padding: 0 10px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-brand .L { color: var(--ivory); font-weight: 400; }
+.sidebar-brand .v { color: var(--copper); font-weight: 500; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding-top: 18px; flex: 1; }
+.sidebar-link {
+  font-family: var(--label);
+  font-size: 13px; font-weight: 500;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-md);
+  padding: 10px 12px;
+  border-radius: var(--r-1);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-link:hover { color: var(--ivory); background: var(--surface-2); }
+.sidebar-link.active {
+  color: var(--copper);
+  background: var(--copper-soft);
+}
+.sidebar-logout {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-md);
+  font-family: var(--label);
+  font-size: 11px; font-weight: 500;
+  letter-spacing: 2px; text-transform: uppercase;
+  padding: 10px;
+  border-radius: var(--r-1);
+  margin-top: 16px;
+  transition: all 0.15s;
+}
+.sidebar-logout:hover { color: var(--ivory); border-color: var(--border-strong); }
+
+.app-main {
+  flex: 1;
+  overflow-x: hidden;
+  padding: 32px 40px;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .app-layout { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    height: auto;
+    order: 2;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    flex-direction: row;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+    border-right: none;
+    z-index: 100;
+    background: rgba(24, 21, 15, 0.96);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .sidebar-brand { display: none; }
+  .sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 4px 0;
+    flex: 1;
+    gap: 0;
+  }
+  .sidebar-link {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+  }
+  .sidebar-logout {
+    margin: 0 0 0 8px;
+    padding: 10px;
+    font-size: 10px;
+  }
+  .app-main {
+    padding: 20px 16px 96px;
+    order: 1;
+  }
+}
+
+/* ============================================================
+   PAGES — generic scaffolding (overridden per-page)
+   ============================================================ */
+.page-header {
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.page-header h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 34px;
+  line-height: 1.1;
+  color: var(--ivory);
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+.page-header .eyebrow {
+  display: inline-block;
+  font-family: var(--label);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--copper);
+  margin-bottom: 10px;
+}
+.page-header p {
+  color: var(--text-md);
+  font-size: 14px;
+}
+
+.placeholder {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-md);
+}
+.placeholder h1 {
+  font-family: var(--serif);
+  font-size: 28px;
+  color: var(--ivory);
+  margin-bottom: 8px;
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 20px 24px;
+}
+
+.eyebrow {
+  font-family: var(--label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+/* Unsaved changes guard dialog styling handled by window.confirm default */
+
+/* ============================================================
+   STRIPE REDIRECT PAGES (/setup-success, /setup-cancel)
+   Client-facing — no auth, no app chrome, brand-forward.
+   ============================================================ */
+.stripe-redirect {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px 24px;
+  background: var(--base);
+}
+.stripe-redirect-wrap {
+  width: 100%;
+  max-width: 520px;
+  text-align: center;
+}
+.stripe-redirect-mark {
+  display: inline-block;
+  font-family: var(--serif);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+  margin-bottom: 48px;
+}
+.stripe-redirect-mark .L { color: var(--ivory); font-weight: 400; }
+.stripe-redirect-mark .v { color: var(--copper); font-weight: 500; }
+.stripe-redirect-icon {
+  width: 64px; height: 64px; border-radius: 50%;
+  border: 1.5px solid var(--copper);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 24px;
+  color: var(--copper);
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 300;
+}
+.stripe-redirect-icon--muted { border-color: var(--copper-dim); }
+.stripe-redirect-wrap h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1.2;
+  color: var(--ivory);
+  margin-bottom: 20px;
+}
+.stripe-redirect-body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--cream);
+  opacity: 0.86;
+  margin-bottom: 14px;
+}
+.stripe-redirect-body em { font-style: normal; color: var(--copper); }
+.stripe-redirect-body strong { color: var(--ivory); font-weight: 500; }
+.stripe-redirect-note {
+  font-family: var(--label);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  margin-top: 24px;
+}
+.stripe-redirect-muted {
+  font-size: 14px; line-height: 1.6;
+  color: var(--text-md);
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.stripe-redirect-muted a {
+  color: var(--copper);
+  border-bottom: 1px solid rgba(184, 132, 90, 0.3);
+  transition: border-color 0.2s;
+}
+.stripe-redirect-muted a:hover { border-color: var(--copper); }
