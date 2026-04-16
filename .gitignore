@@ -18,6 +18,11 @@ build/
 # But DO commit the example
 !.env.example
 
+# Session handoff doc (contains live secrets — keep OUT of repo)
+HANDOFF.md
+HANDOFF*.md
+*-HANDOFF.md
+
 # Supabase CLI artifacts
 supabase/.temp/
 supabase/.branches/
