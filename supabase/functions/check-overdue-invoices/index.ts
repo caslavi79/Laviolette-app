@@ -60,10 +60,13 @@ Deno.serve(async (req: Request) => {
     .lt('due_date', fiveBD)
     .select('id')
 
+  if (e1) console.error('check-overdue-invoices overdue transition error:', e1.message)
+  if (e2) console.error('check-overdue-invoices late fee flag error:', e2.message)
+
   return new Response(JSON.stringify({
     ok: !e1 && !e2,
     flipped_to_overdue: (flipped || []).length,
     late_fee_flagged: (feeFlagged || []).length,
-    errors: [e1?.message, e2?.message].filter(Boolean),
+    errors: [e1 ? 'overdue-transition-failed' : null, e2 ? 'late-fee-flag-failed' : null].filter(Boolean),
   }), { headers: { 'Content-Type': 'application/json' } })
 })

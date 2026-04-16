@@ -15,15 +15,21 @@ export default function Contracts() {
   const [loading, setLoading] = useState(true)
   const [sendBusy, setSendBusy] = useState(false)
   const [sendResult, setSendResult] = useState(null)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const [cRes, clRes, brRes, prRes] = await Promise.all([
       supabase.from('contracts').select('*, clients(id, name, legal_name), brands(id, name, color)').order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name, legal_name').order('name'),
       supabase.from('brands').select('id, name, client_id').order('name'),
       supabase.from('projects').select('id, name, type, brand_id, total_fee, brands(id, name, client_id)').order('name'),
     ])
+    if (cRes.error) { setErr(cRes.error.message); setLoading(false); return }
+    if (clRes.error) { setErr(clRes.error.message); setLoading(false); return }
+    if (brRes.error) { setErr(brRes.error.message); setLoading(false); return }
+    if (prRes.error) { setErr(prRes.error.message); setLoading(false); return }
     setContracts(cRes.data || [])
     setClients(clRes.data || [])
     setBrands(brRes.data || [])
@@ -98,6 +104,7 @@ export default function Contracts() {
           placeholder="Search name, client, brand…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search"
         />
         <div className="toolbar-filters">
           {['all', 'draft', 'sent', 'signed', 'active', 'expired', 'terminated'].map((s) => (
@@ -113,6 +120,8 @@ export default function Contracts() {
           + New contract
         </button>
       </div>
+
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
 
       <div className="contracts-split">
         <div className="contacts-list-wrap">
@@ -131,7 +140,7 @@ export default function Contracts() {
                 {visible.map((c) => {
                   const expiresIn = c.end_date ? daysUntil(c.end_date) : null
                   return (
-                    <li key={c.id} className={`contract-row ${selected === c.id ? 'selected' : ''}`} onClick={() => { setSelected(c.id); setSendResult(null) }}>
+                    <li key={c.id} className={`contract-row ${selected === c.id ? 'selected' : ''}`} onClick={() => { setSelected(c.id); setSendResult(null) }} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(c.id); setSendResult(null) } }}>
                       <div className="contract-row-name">{c.name}</div>
                       <div className="contract-row-meta">
                         <span>{c.clients?.legal_name || c.clients?.name || '—'}</span>

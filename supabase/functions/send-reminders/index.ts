@@ -227,7 +227,8 @@ Deno.serve(async (req: Request) => {
 
   if (!emailRes.ok) {
     const errorBody = await emailRes.text()
-    return new Response(JSON.stringify({ ok: false, error: errorBody }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    console.error('send-reminders email error:', errorBody)
+    return new Response(JSON.stringify({ ok: false, error: 'Failed to send reminder email' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
 
   return new Response(JSON.stringify({ ok: true, sent: true, count: lines.length }), {

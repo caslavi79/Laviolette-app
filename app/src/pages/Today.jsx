@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { fmtDate, fmtMoneyShort, daysUntil, daysSince, COLORS } from '../lib/format'
+import { fmtDate, fmtMoneyShort, daysUntil, COLORS } from '../lib/format'
 
 /* Map of retainer_service keywords → platform list.
  * Used as a fallback when a brand has active retainers but no daily_rounds

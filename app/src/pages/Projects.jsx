@@ -16,9 +16,11 @@ export default function Projects() {
   const [filterStatus, setFilterStatus] = useState('active')
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const [projRes, brandRes] = await Promise.all([
       supabase
         .from('projects')
@@ -36,6 +38,8 @@ export default function Projects() {
         .select('id, name, color, clients(id, name, legal_name)')
         .order('name'),
     ])
+    if (projRes.error) { setErr(projRes.error.message); setLoading(false); return }
+    if (brandRes.error) { setErr(brandRes.error.message); setLoading(false); return }
     setProjects(projRes.data || [])
     setBrands((brandRes.data || []).map((b) => ({
       ...b,
@@ -76,7 +80,8 @@ export default function Projects() {
         ? { ...p, deliverables: p.deliverables.map((x) => x.id === d.id ? { ...x, ...patch } : x) }
         : p
     ))
-    await supabase.from('deliverables').update(patch).eq('id', d.id)
+    const { error } = await supabase.from('deliverables').update(patch).eq('id', d.id)
+    if (error) setErr(error.message)
     // Trigger briefing_md + auto_complete triggers fire server-side; reload to reflect project status change.
     load()
   }
@@ -96,6 +101,7 @@ export default function Projects() {
           placeholder="Search name, brand, client…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search"
         />
         <div className="toolbar-filters">
           {['all', 'buildout', 'retainer'].map((t) => (
@@ -116,6 +122,8 @@ export default function Projects() {
           + New project
         </button>
       </div>
+
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
 
       <div className="projects-split">
         <div className="projects-list-wrap">
@@ -151,6 +159,9 @@ export default function Projects() {
                     key={p.id}
                     className={`project-row ${selectedId === p.id ? 'selected' : ''}`}
                     onClick={() => setSelectedId(p.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.id) } }}
                     style={{ borderLeftColor: accent }}
                   >
                     <div className="project-row-top">

@@ -113,6 +113,6 @@ Deno.serve(async (req: Request) => {
     return json({ success: true, stripe_invoice_id: sentInvoice.id, hosted_invoice_url: sentInvoice.hosted_invoice_url, invoice_pdf: sentInvoice.invoice_pdf }, 200, corsHeaders)
   } catch (err) {
     console.error('create-stripe-invoice error:', err)
-    return json({ error: String((err as Error).message || err) }, 500, corsHeaders)
+    return json({ error: 'Internal error' }, 500, corsHeaders)
   }
 })

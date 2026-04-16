@@ -35,9 +35,11 @@ export default function Contacts() {
   const [modalState, setModalState] = useState(null) // { kind, data }
   const [bankLink, setBankLink] = useState(null)     // { url, client_name } — populated by Send Bank Link
   const [bankBusy, setBankBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   const loadContacts = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const { data, error } = await supabase
       .from('contacts')
       .select(`
@@ -49,6 +51,7 @@ export default function Contacts() {
       `)
       .order('name')
     if (error) {
+      setErr(error.message)
       setContacts([])
       setLoading(false)
       return
@@ -63,6 +66,8 @@ export default function Contacts() {
       supabase.from('invoices').select('client_id, total, paid_amount, status'),
       supabase.from('projects').select('brand_id, type, total_fee, status'),
     ])
+    if (invRes.error) { setErr(invRes.error.message); return }
+    if (projRes.error) { setErr(projRes.error.message); return }
     const byClient = new Map()
     for (const i of invRes.data || []) {
       const entry = byClient.get(i.client_id) || { paid: 0, outstanding: 0, recurring: 0 }
@@ -169,6 +174,7 @@ export default function Contacts() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="toolbar-search"
+          aria-label="Search"
         />
         <div className="toolbar-filters">
           {['all', 'lead', 'active', 'past'].map((s) => (
@@ -188,6 +194,8 @@ export default function Contacts() {
           + Add contact
         </button>
       </div>
+
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
 
       <div className="contacts-split">
         <div className="contacts-list-wrap">
@@ -216,6 +224,9 @@ export default function Contacts() {
                     key={c.id}
                     className={`contact-row ${selectedContactId === c.id ? 'selected' : ''}`}
                     onClick={() => setSelectedContactId(c.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedContactId(c.id) } }}
                   >
                     <div className="contact-row-main">
                       <div className="contact-row-name">{c.name}</div>
@@ -482,11 +493,15 @@ function BrandCard({ brand, financials, onEdit }) {
       return
     }
     // Also include is_briefing_file project files
-    const { data: files } = await supabase
-      .from('project_files')
-      .select('name, storage_path')
-      .eq('is_briefing_file', true)
-      .in('project_id', [])
+    const { data: projects } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('brand_id', brand.id)
+      .eq('status', 'active')
+    const projectIds = (projects || []).map(p => p.id)
+    const { data: files } = projectIds.length > 0
+      ? await supabase.from('project_files').select('name, storage_path').eq('is_briefing_file', true).in('project_id', projectIds)
+      : { data: [] }
     let out = data.briefing_md
     if (files && files.length > 0) {
       out += '\n\n---\n\n(Briefing files not inlined yet — download separately.)\n'

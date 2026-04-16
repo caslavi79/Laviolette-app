@@ -32,9 +32,11 @@ export default function Schedule() {
   const [weekStart, setWeekStart] = useState(startOfWeek())
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const weekStartIso = toISO(weekStart)
     const weekEndIso = toISO(addDays(weekStart, 6))
     const [tplRes, ovrRes, brandRes] = await Promise.all([
@@ -42,6 +44,9 @@ export default function Schedule() {
       supabase.from('schedule_overrides').select('id, date, time_block, brand_id, label, reason, brands(id, name, color)').gte('date', weekStartIso).lte('date', weekEndIso).order('date'),
       supabase.from('brands').select('id, name, color').order('name'),
     ])
+    if (tplRes.error) { setErr(tplRes.error.message); setLoading(false); return }
+    if (ovrRes.error) { setErr(ovrRes.error.message); setLoading(false); return }
+    if (brandRes.error) { setErr(brandRes.error.message); setLoading(false); return }
     setTemplate(tplRes.data || [])
     setOverrides(ovrRes.data || [])
     setBrands(brandRes.data || [])
@@ -106,6 +111,8 @@ export default function Schedule() {
         <button className="btn btn-secondary" onClick={() => setWeekStart(startOfWeek())}>This week</button>
         <button className="btn btn-secondary" onClick={() => setWeekStart((w) => addDays(w, 7))}>Next week →</button>
       </div>
+
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
 
       {loading ? (
         <div className="loading">Loading…</div>

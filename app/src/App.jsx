@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import ErrorBoundary from './components/ErrorBoundary'
 import Login from './pages/Login'
 import Today from './pages/Today'
 import Schedule from './pages/Schedule'
@@ -18,19 +19,19 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public routes */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/sign" element={<Sign />} />
-        <Route path="/setup-success" element={<SetupSuccess />} />
-        <Route path="/setup-cancel" element={<SetupCancel />} />
+        <Route path="/login" element={<ErrorBoundary><Login /></ErrorBoundary>} />
+        <Route path="/sign" element={<ErrorBoundary><Sign /></ErrorBoundary>} />
+        <Route path="/setup-success" element={<ErrorBoundary><SetupSuccess /></ErrorBoundary>} />
+        <Route path="/setup-cancel" element={<ErrorBoundary><SetupCancel /></ErrorBoundary>} />
 
         {/* Authenticated routes */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Today />} />
-          <Route path="schedule" element={<Schedule />} />
-          <Route path="contacts" element={<Contacts />} />
-          <Route path="projects" element={<Projects />} />
-          <Route path="money" element={<Money />} />
-          <Route path="contracts" element={<Contracts />} />
+          <Route index element={<ErrorBoundary><Today /></ErrorBoundary>} />
+          <Route path="schedule" element={<ErrorBoundary><Schedule /></ErrorBoundary>} />
+          <Route path="contacts" element={<ErrorBoundary><Contacts /></ErrorBoundary>} />
+          <Route path="projects" element={<ErrorBoundary><Projects /></ErrorBoundary>} />
+          <Route path="money" element={<ErrorBoundary><Money /></ErrorBoundary>} />
+          <Route path="contracts" element={<ErrorBoundary><Contracts /></ErrorBoundary>} />
           <Route
             path="*"
             element={

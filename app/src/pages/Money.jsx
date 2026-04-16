@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtMoneyShort, fmtDate, daysUntil, badgeStyle, COLORS, colorForInvoiceStatus } from '../lib/format'
 import EditInvoiceModal from '../components/forms/EditInvoiceModal'
@@ -44,15 +44,21 @@ function InvoicesTab() {
   const [expanded, setExpanded] = useState(null)
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const [invRes, clRes, brRes, prRes] = await Promise.all([
       supabase.from('invoices').select('*, clients(id, name, legal_name)').order('due_date', { ascending: false }),
       supabase.from('clients').select('id, name, legal_name').order('name'),
       supabase.from('brands').select('id, name, client_id').order('name'),
       supabase.from('projects').select('id, name, type, brand_id, total_fee, brands(id, name, client_id)').order('name'),
     ])
+    if (invRes.error) { setErr(invRes.error.message); setLoading(false); return }
+    if (clRes.error) { setErr(clRes.error.message); setLoading(false); return }
+    if (brRes.error) { setErr(brRes.error.message); setLoading(false); return }
+    if (prRes.error) { setErr(prRes.error.message); setLoading(false); return }
     setInvoices(invRes.data || [])
     setClients(clRes.data || [])
     setBrands(brRes.data || [])
@@ -99,6 +105,7 @@ function InvoicesTab() {
 
   return (
     <div className="invoices-tab">
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
       <div className="money-summary">
         <div className="summary-card"><span className="eyebrow">Outstanding</span><strong style={{ color: COLORS.amber }}>{fmtMoneyShort(outstanding)}</strong></div>
         <div className="summary-card"><span className="eyebrow">Received this month</span><strong style={{ color: COLORS.green }}>{fmtMoneyShort(receivedThisMonth)}</strong></div>
@@ -216,18 +223,27 @@ function RevenueTab() {
   const [projects, setProjects] = useState([])
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
 
   useEffect(() => {
+    setErr('')
     Promise.all([
       supabase.from('invoices').select('id, client_id, total, paid_amount, paid_date, status, project_id, projects(id, type)'),
       supabase.from('expenses').select('amount, date'),
       supabase.from('projects').select('id, brand_id, type, status, total_fee'),
       supabase.from('clients').select('id, name, legal_name'),
     ]).then(([inv, ex, pr, cl]) => {
+      if (inv.error) { setErr(inv.error.message); setLoading(false); return }
+      if (ex.error) { setErr(ex.error.message); setLoading(false); return }
+      if (pr.error) { setErr(pr.error.message); setLoading(false); return }
+      if (cl.error) { setErr(cl.error.message); setLoading(false); return }
       setInvoices(inv.data || [])
       setExpenses(ex.data || [])
       setProjects(pr.data || [])
       setClients(cl.data || [])
+      setLoading(false)
+    }).catch((e) => {
+      setErr(e.message || String(e))
       setLoading(false)
     })
   }, [])
@@ -279,6 +295,7 @@ function RevenueTab() {
 
   return (
     <div className="revenue-tab">
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
       <div className="revenue-grid">
         <div className="revenue-card">
           <div className="revenue-card-label">{new Date(year, thisMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
@@ -345,14 +362,19 @@ function ExpensesTab() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setErr('')
     const [exRes, clRes, brRes] = await Promise.all([
       supabase.from('expenses').select('*').order('date', { ascending: false }),
       supabase.from('clients').select('id, name, legal_name').order('name'),
       supabase.from('brands').select('id, name, client_id').order('name'),
     ])
+    if (exRes.error) { setErr(exRes.error.message); setLoading(false); return }
+    if (clRes.error) { setErr(clRes.error.message); setLoading(false); return }
+    if (brRes.error) { setErr(brRes.error.message); setLoading(false); return }
     setExpenses(exRes.data || [])
     setClients(clRes.data || [])
     setBrands(brRes.data || [])
@@ -391,6 +413,7 @@ function ExpensesTab() {
 
   return (
     <div className="expenses-tab">
+      {err && <div className="login-error" style={{marginBottom:16}}>{err}</div>}
       <div className="expenses-summary">
         <div className="summary-card"><span className="eyebrow">Total {year}</span><strong>{fmtMoneyShort(total)}</strong></div>
         <div className="summary-card"><span className="eyebrow">Deductible</span><strong style={{ color: COLORS.green }}>{fmtMoneyShort(deductible)}</strong></div>

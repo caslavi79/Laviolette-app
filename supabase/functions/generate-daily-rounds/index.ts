@@ -71,7 +71,8 @@ Deno.serve(async (req: Request) => {
     .select('id')
 
   if (error) {
-    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    console.error('generate-daily-rounds error:', error)
+    return new Response(JSON.stringify({ ok: false, error: 'Failed to generate rounds' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
 
   return new Response(JSON.stringify({ ok: true, date, rows_attempted: rows.length, rows_inserted: (data || []).length }), {

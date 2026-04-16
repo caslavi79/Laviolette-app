@@ -86,7 +86,7 @@ Deno.serve(async (req: Request) => {
       })
       .select('id, invoice_number')
       .single()
-    if (error) { skipped.push(`${p.name} (error: ${error.message})`); continue }
+    if (error) { skipped.push(`${p.name} (database error)`); continue }
     if (inserted) created.push(inserted.invoice_number)
   }
 

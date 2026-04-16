@@ -988,6 +988,11 @@ body.modal-open { overflow: hidden; }
   border-color: var(--copper-dim);
   color: var(--copper);
 }
+.filter-pill[aria-pressed="true"] {
+  background: var(--copper-soft);
+  border-color: var(--copper-dim);
+  color: var(--copper);
+}
 
 .contacts-split {
   display: grid;
@@ -1820,9 +1825,15 @@ body.modal-open { overflow: hidden; }
   .week-grid { grid-template-columns: repeat(4, 1fr); }
   .week-grid > .week-col:nth-child(n+5) { display: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+  .week-grid { grid-template-columns: repeat(2, 1fr); }
+  .week-grid > .week-col:nth-child(n+5) { display: none; }
+}
+@media (max-width: 480px) {
   .week-grid { grid-template-columns: 1fr; }
-  .week-grid > .week-col { display: flex; }
+  .week-grid > .week-col { display: flex !important; }
+}
+@media (max-width: 640px) {
   .template-row { grid-template-columns: 1fr; gap: 4px; }
 }
 
@@ -2187,11 +2198,16 @@ body.modal-open { overflow: hidden; }
   .invoice-row-main > span { font-size: 12px; }
   .invoice-row-main .invoice-desc,
   .invoice-row-main .invoice-due { display: none; }
+  .invoice-row-detail { padding-left: 18px; }
   .expenses-table { font-size: 12px; }
   .expenses-table th:nth-child(3),
   .expenses-table td:nth-child(3),
   .expenses-table th:nth-child(6),
   .expenses-table td:nth-child(6) { display: none; }
+}
+@media (max-width: 640px) {
+  .category-breakdown li { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .expenses-table { display: block; overflow-x: auto; }
 }
 
 /* ============================================================

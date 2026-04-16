@@ -84,6 +84,6 @@ Deno.serve(async (req: Request) => {
     }, 200, corsHeaders)
   } catch (err) {
     console.error('create-setup-session error:', err)
-    return json({ error: String((err as Error).message || err) }, 500, corsHeaders)
+    return json({ error: 'Internal error' }, 500, corsHeaders)
   }
 })
