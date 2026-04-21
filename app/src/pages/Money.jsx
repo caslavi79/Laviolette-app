@@ -230,10 +230,51 @@ function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, cha
   )
 }
 
+// System-state message derived from the invoice + client tuple. Authoritative,
+// replaces any stale operator copy in inv.notes once a charge has fired. The
+// DB status column never carries 'processing' — that's a UI-only projection
+// of (status='pending' AND stripe_payment_intent_id IS NOT NULL).
+function invoiceSystemState(inv, isOverdue) {
+  const hasPI = !!(inv.stripe_payment_intent_id || inv.stripe_invoice_id)
+  if (inv.status === 'paid') {
+    return {
+      label: 'paid',
+      message: `Paid${inv.paid_date ? ' ' + fmtDate(inv.paid_date) : ''}${inv.payment_method ? ' · ' + inv.payment_method.replace('_', ' ') : ''}.`,
+    }
+  }
+  if (inv.status === 'partially_paid') {
+    return { label: 'partially paid', message: 'Partial payment recorded. Outstanding balance still owed.' }
+  }
+  if (inv.status === 'void') return { label: 'void', message: 'Voided.' }
+  if (isOverdue) {
+    return { label: 'overdue', message: hasPI
+      ? 'ACH attempt failed or reversed. Follow up with client.'
+      : 'Past due and not yet charged. Charge manually or resolve blocker.' }
+  }
+  if (hasPI) {
+    return { label: 'processing', message: 'Charge initiated via Stripe. ACH typically settles 1–3 business days after fire date. Will flip to PAID automatically when the webhook confirms settlement.' }
+  }
+  // Pre-charge variations
+  if (!inv.clients?.stripe_customer_id) {
+    return { label: inv.status, message: 'Awaiting Stripe customer setup on the client record.' }
+  }
+  if (!inv.clients?.bank_info_on_file) {
+    return { label: inv.status, message: 'Awaiting client bank-link completion. Cannot charge until bank_info_on_file flips true.' }
+  }
+  return { label: inv.status, message: 'Ready to charge. Click "Charge via ACH" or wait for auto-push at 4:05 PM CT on the business day before the due date.' }
+}
+
 function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargingId, chargeResult }) {
   const du = daysUntil(inv.due_date)
   const isOverdue = (inv.status === 'overdue') || (inv.status === 'pending' && du !== null && du < 0)
-  const color = colorForInvoiceStatus(isOverdue ? 'overdue' : inv.status)
+  const sys = invoiceSystemState(inv, isOverdue)
+  const color = colorForInvoiceStatus(sys.label === 'partially paid' ? 'partially_paid' : sys.label)
+  // inv.notes was historically used for operator-authored pre-charge guidance
+  // ("Auto-push will fire at 4:05 PM"). Once a PI is attached that copy is
+  // stale + anxiety-inducing. Suppress operator notes once the charge is in
+  // flight; the system-state message above carries the authoritative status.
+  const hasLiveCharge = !!(inv.stripe_payment_intent_id || inv.stripe_invoice_id)
+  const showNotes = inv.notes && !hasLiveCharge
   return (
     <li className={`invoice-row ${isExpanded ? 'expanded' : ''}`} data-invoice-id={inv.id}>
       <div className="invoice-row-main" onClick={onExpand}>
@@ -246,7 +287,7 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
           {du !== null && du < 0 && inv.status !== 'paid' && <span className="invoice-du"> · {Math.abs(du)}d late</span>}
           {du !== null && du >= 0 && du <= 7 && inv.status !== 'paid' && <span className="invoice-du"> · in {du}d</span>}
         </span>
-        <span style={badgeStyle(color)}>{isOverdue ? 'overdue' : inv.status}</span>
+        <span style={badgeStyle(color)}>{sys.label}</span>
       </div>
       {isExpanded && (
         <div className="invoice-row-detail">
@@ -257,7 +298,11 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
               ))}
             </ul>
           )}
-          {inv.notes && <div className="invoice-notes">{inv.notes}</div>}
+          <div className="invoice-notes" style={{ borderLeftColor: color, fontStyle: 'normal' }}>{sys.message}</div>
+          {showNotes && <div className="invoice-notes"><strong>Note:</strong> {inv.notes}</div>}
+          {inv.stripe_payment_intent_id && !inv.stripe_payment_intent_id.startsWith('CLAIMING:') && (
+            <div className="invoice-stripe-ref">Stripe PI: <code style={{ fontSize: 11 }}>{inv.stripe_payment_intent_id}</code></div>
+          )}
           {inv.stripe_invoice_id && (
             <div className="invoice-stripe-ref">Stripe invoice: <code style={{ fontSize: 11 }}>{inv.stripe_invoice_id}</code></div>
           )}

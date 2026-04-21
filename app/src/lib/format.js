@@ -58,12 +58,19 @@ export const COLORS = {
 }
 
 /* Status → color helpers shared across pages.
- * Return a hex string that plays well with badgeStyle. */
+ * Return a hex string that plays well with badgeStyle.
+ *
+ * 'processing' is a UI-derived pseudo-status for invoices whose DB status is
+ * 'pending' but already have a stripe_payment_intent_id attached (charge in
+ * flight, awaiting webhook confirmation). Copper signals "work is happening,
+ * no operator action required" — distinct from pending's amber (charge your
+ * invoice). Callers opt in by passing the derived label, not the raw column. */
 export function colorForInvoiceStatus(status) {
   switch (status) {
     case 'paid':            return COLORS.green
     case 'partially_paid':  return COLORS.amber
     case 'overdue':         return COLORS.red
+    case 'processing':      return COLORS.copper
     case 'pending':         return COLORS.amber
     case 'sent':            return COLORS.slate
     case 'draft':           return COLORS.steel
