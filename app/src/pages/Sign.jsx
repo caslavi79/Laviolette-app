@@ -132,6 +132,17 @@ export default function Sign() {
       })
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}))
+        // contract-sign's unified-onboarding branch returns 500 with
+        // { contract_signed: true } when Stripe checkout or invoice insert
+        // fails AFTER the atomic sign commit. The contract IS signed; Case
+        // gets the DLQ HQ alert and will recover manually. Flip to the
+        // signed UI with a soft warning instead of the generic error state
+        // (which would cause a refresh to loop: 409 "not in a signable state").
+        if (body.contract_signed) {
+          setErr('Signed successfully — but invoice setup hit an error. Case has been alerted and will follow up.')
+          setState('signed')
+          return
+        }
         throw new Error(body.error || `HTTP ${resp.status}`)
       }
       setState('signed')
