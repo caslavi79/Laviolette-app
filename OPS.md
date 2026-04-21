@@ -882,4 +882,4 @@ single-user app).
 | Last frontend deploy | 2026-04-21 unified-onboarding: `index-BKS968Ck.js` / `index-DXISWbym.css` (Money.jsx adds Regenerate bank-link button conditional on `bank_link_url` set — retainer rows unchanged). |
 | Last edge-function deploy | 2026-04-21 unified-onboarding: `contract-sign`, `send-invoice`, `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=false` set on secrets. `deploy-edge.sh` now lists 19 (added `regenerate-bank-link`). |
 | Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
-| Unpushed local commits on `main` | **0** — all 27 commits from 2026-04-21 extended session pushed at session end. Origin HEAD matches local HEAD at `aae3f52`. |
+| Unpushed local commits on `main` | **0** — all 30 commits from 2026-04-21 (27 extended + 3 unified-onboarding) pushed at session end. Origin HEAD matches local HEAD at `9165446`. |
