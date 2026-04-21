@@ -91,6 +91,16 @@ export function colorForContractStatus(status) {
   }
 }
 
+/* Humanized display label for contract status. The raw enum has 'signed'
+ * (post-sign, pre-effective-date) AND 'active' (effective-date reached,
+ * cron-flipped by advance-contract-status) as separate states. For
+ * operator-facing UI both read as "signed" — the internal advancement
+ * matters for billing triggers, not for human comprehension. */
+export function contractDisplayLabel(status) {
+  if (status === 'active' || status === 'signed') return 'signed'
+  return status
+}
+
 export function colorForProjectStatus(status) {
   switch (status) {
     case 'active':    return COLORS.copper

@@ -370,7 +370,7 @@ function RevenueTab() {
     Promise.all([
       supabase.from('invoices').select('id, client_id, total, paid_amount, paid_date, status, project_id, projects(id, type)'),
       supabase.from('expenses').select('amount, date'),
-      supabase.from('projects').select('id, brand_id, type, status, total_fee'),
+      supabase.from('projects').select('id, brand_id, type, status, total_fee, brands(id, status, clients(id, status))'),
       supabase.from('clients').select('id, name, legal_name'),
     ]).then(([inv, ex, pr, cl]) => {
       if (inv.error) { setErr(inv.error.message); setLoading(false); return }
@@ -418,7 +418,14 @@ function RevenueTab() {
   const expensesThisMonth = expensesIn(thisMonth)
   const profitThisMonth = received - expensesThisMonth
 
-  const monthlyRetainerMRR = projects.filter((p) => p.type === 'retainer' && p.status === 'active').reduce((s, p) => s + (parseFloat(p.total_fee) || 0), 0)
+  // MRR only counts retainers whose brand + client are both currently active.
+  // Offboarded brands or past clients with lingering active project rows would
+  // otherwise inflate the recurring-revenue figure.
+  const monthlyRetainerMRR = projects
+    .filter((p) => p.type === 'retainer' && p.status === 'active')
+    .filter((p) => !p.brands || p.brands.status === 'active')
+    .filter((p) => !p.brands?.clients || p.brands.clients.status === 'active')
+    .reduce((s, p) => s + (parseFloat(p.total_fee) || 0), 0)
 
   const byClient = useMemo(() => {
     const m = new Map()

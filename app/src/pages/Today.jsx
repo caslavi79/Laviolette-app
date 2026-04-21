@@ -132,17 +132,21 @@ export default function Today() {
       // NULL start_date is treated as already-running (legacy retainers).
       const { data: retProjects, error: retErr } = await supabase
         .from('projects')
-        .select('id, brand_id, type, status, start_date, brands(id, name, color, instagram_url, facebook_url, gbp_url), retainer_services(id, name, description, cadence, active, platforms)')
+        .select('id, brand_id, type, status, start_date, brands(id, name, color, status, instagram_url, facebook_url, gbp_url, clients(id, status)), retainer_services(id, name, description, cadence, active, platforms)')
         .eq('type', 'retainer')
         .eq('status', 'active')
         .or(`start_date.is.null,start_date.lte.${today}`)
       if (retErr) throw retErr
 
-      // Collapse by brand
+      // Collapse by brand. Skip offboarded/paused brands and past/lead
+      // clients — their retainer projects shouldn't surface daily rounds
+      // (the engagement is historical or not yet started).
       const byBrand = new Map()
       for (const p of retProjects || []) {
         if (!p.brands) continue
         const b = p.brands
+        if (b.status && b.status !== 'active') continue
+        if (b.clients && b.clients.status && b.clients.status !== 'active') continue
         const platforms = new Set()
         for (const s of p.retainer_services || []) {
           if (!s.active) continue
@@ -205,12 +209,20 @@ export default function Today() {
 
       // 8. Alerts
       const alertRows = []
+      // Select stripe_payment_intent_id + stripe_invoice_id so a pending-with-PI
+      // invoice (UI label "processing", per commit c444014) is correctly
+      // recognized as in-flight ACH — not a duplicate OVERDUE/DUE-SOON alert.
       const { data: invs } = await supabase
         .from('invoices')
-        .select('id, invoice_number, description, total, due_date, status, client_id, clients(name)')
+        .select('id, invoice_number, description, total, due_date, status, stripe_payment_intent_id, stripe_invoice_id, client_id, clients(name)')
       const nowDate = new Date(); nowDate.setHours(0, 0, 0, 0)
       for (const inv of (invs || [])) {
         if (['paid', 'void', 'draft'].includes(inv.status)) continue
+        // Skip invoices whose charge has already fired. ACH settles 1-3 biz
+        // days post-fire; the Money tab shows these as "processing" (copper).
+        // Surfacing them here as OVERDUE or DUE SOON would duplicate the
+        // action pressure Case already resolved by clicking Charge via ACH.
+        if (inv.stripe_payment_intent_id || inv.stripe_invoice_id) continue
         const du = daysUntil(inv.due_date)
         if (inv.status === 'overdue' || (inv.status === 'pending' && du !== null && du < 0)) {
           alertRows.push({
@@ -231,10 +243,16 @@ export default function Today() {
         }
       }
 
+      // Expiring-contract alert applies only to retainers. Buildout end_date
+      // is the delivery target (signing_date + timeline like "2 weeks") — a
+      // freshly-signed buildout would trip the renewal window and falsely
+      // read as expiring. Retainers use end_date as the intro-term boundary
+      // where "expiring" = "decide renewal" which is the correct semantics.
       const { data: contracts } = await supabase
         .from('contracts')
-        .select('id, name, status, end_date, renewal_notice_days')
+        .select('id, name, type, status, end_date, renewal_notice_days')
         .in('status', ['active', 'signed'])
+        .eq('type', 'retainer')
       for (const c of (contracts || [])) {
         if (!c.end_date) continue
         const du = daysUntil(c.end_date)

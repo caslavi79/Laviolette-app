@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { fmtMoneyShort, fmtDate, daysUntil, badgeStyle, COLORS, colorForContractStatus } from '../lib/format'
+import { fmtMoneyShort, fmtDate, daysUntil, badgeStyle, COLORS, colorForContractStatus, contractDisplayLabel } from '../lib/format'
 import EditContractModal from '../components/forms/EditContractModal'
 
 export default function Contracts() {
@@ -41,7 +41,17 @@ export default function Contracts() {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return contracts.filter((c) => {
-      if (filterStatus !== 'all' && c.status !== filterStatus) return false
+      if (filterStatus !== 'all') {
+        // 'signed' chip collapses the raw 'signed' + 'active' enum values so
+        // the filter matches the display label. Without this, Dustin's
+        // cron-flipped-to-active contracts silently disappear from the
+        // 'signed' filter result.
+        if (filterStatus === 'signed') {
+          if (c.status !== 'signed' && c.status !== 'active') return false
+        } else if (c.status !== filterStatus) {
+          return false
+        }
+      }
       if (!q) return true
       return [c.name, c.clients?.name, c.clients?.legal_name, c.brands?.name].filter(Boolean).join(' ').toLowerCase().includes(q)
     })
@@ -107,7 +117,7 @@ export default function Contracts() {
           aria-label="Search"
         />
         <div className="toolbar-filters">
-          {['all', 'draft', 'sent', 'signed', 'active', 'expired', 'terminated'].map((s) => (
+          {['all', 'draft', 'sent', 'signed', 'expired', 'terminated'].map((s) => (
             <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} onClick={() => setFilterStatus(s)}>{s}</button>
           ))}
         </div>
@@ -147,8 +157,8 @@ export default function Contracts() {
                         <span>{c.type}</span>
                       </div>
                       <div className="contract-row-footer">
-                        <span style={badgeStyle(colorForContractStatus(c.status))}>{c.status}</span>
-                        {c.status === 'active' && expiresIn !== null && expiresIn <= (c.renewal_notice_days ?? 30) && (
+                        <span style={badgeStyle(colorForContractStatus(c.status))}>{contractDisplayLabel(c.status)}</span>
+                        {c.status === 'active' && c.type === 'retainer' && expiresIn !== null && expiresIn <= (c.renewal_notice_days ?? 30) && (
                           <span className="contract-expiring">expires in {expiresIn}d</span>
                         )}
                       </div>
@@ -213,7 +223,7 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
           </div>
         </div>
         <div className="detail-header-actions">
-          <span style={badgeStyle(colorForContractStatus(contract.status))}>{contract.status}</span>
+          <span style={badgeStyle(colorForContractStatus(contract.status))}>{contractDisplayLabel(contract.status)}</span>
           <button className="btn btn-link" onClick={onEdit}>Edit</button>
         </div>
       </div>

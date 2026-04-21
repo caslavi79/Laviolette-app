@@ -64,6 +64,14 @@ function StatusPill({ status, map = STATUS_COLOR }) {
 //            handle gracefully if one slips through)
 function StagePill({ contact }) {
   const ld = leadDetailsOf(contact)
+  // Conversion override: if the contact has any signed/active/complete
+  // contract, the pipeline stage is historical — surface "active" instead.
+  // A frozen lead_details.stage='discovery' would otherwise mislabel a
+  // client who's signed + paying.
+  const hasSignedContract = (contact.clients || []).some((cl) =>
+    (cl.contracts || []).some((ct) => ['signed','active','complete'].includes(ct.status))
+  )
+  if (hasSignedContract) return <span style={badgeStyle(COLORS.green)}>active</span>
   if (ld) {
     const color = LEAD_STAGE_COLOR[ld.stage] || COLORS.steel
     return <span style={badgeStyle(color)}>{LEAD_STAGE_LABEL[ld.stage] || ld.stage}</span>
@@ -109,13 +117,25 @@ function StaleBadge() {
  */
 function clientBillingState(client, invoices) {
   const clientInvoices = (invoices || []).filter((i) => i.client_id === client.id)
-  const overdue = clientInvoices.find((i) => i.status === 'overdue')
+  // Past-due = explicit 'overdue' status OR pending-without-PI whose due_date is behind.
+  // The status='overdue' field is only flipped by check-overdue-invoices cron, which
+  // may lag a day or two after due_date passes — so a pending invoice without a PI
+  // that's past due is functionally overdue from the operator's perspective, and
+  // the billing pill should reflect that immediately.
+  const hasStripeRef = (i) => i.stripe_payment_intent_id || i.stripe_invoice_id
+  const isPastDueDate = (i) => {
+    if (!i.due_date || hasStripeRef(i)) return false
+    const [y, m, d] = String(i.due_date).split('T')[0].split('-').map(Number)
+    const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    return due < today
+  }
+  const pastDue = clientInvoices.filter((i) => i.status === 'overdue' || (i.status === 'pending' && isPastDueDate(i)))
   // "Clearing" = we've pushed it to Stripe and ACH is in flight. Check BOTH PI and
   // legacy Stripe-invoice IDs, since the new flow uses PaymentIntent.
-  const hasStripeRef = (i) => i.stripe_payment_intent_id || i.stripe_invoice_id
   const clearing = clientInvoices.filter((i) => i.status === 'pending' && hasStripeRef(i))
   const queued = clientInvoices.filter((i) =>
-    (i.status === 'pending' || i.status === 'draft') && !hasStripeRef(i)
+    (i.status === 'pending' || i.status === 'draft') && !hasStripeRef(i) && !isPastDueDate(i)
   )
   const totalOf = (arr) => arr.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
   const nextDate = (arr) => {
@@ -128,8 +148,8 @@ function clientBillingState(client, invoices) {
     return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
-  if (overdue) {
-    const total = totalOf(clientInvoices.filter((i) => i.status === 'overdue'))
+  if (pastDue.length > 0) {
+    const total = totalOf(pastDue)
     return { label: `PAST DUE · ${fmtMoneyShort(total)}`, color: COLORS.red }
   }
   if (clearing.length > 0) {
@@ -187,7 +207,8 @@ export default function Contacts() {
           lead_details (*),
           clients (
             *,
-            brands (*)
+            brands (*),
+            contracts (id, status)
           )
         `)
         .order('name'),
@@ -275,10 +296,19 @@ export default function Contacts() {
       const ld = leadDetailsOf(c)
       const inPipeline = ld && PIPELINE_STAGES.includes(ld.stage)
       const isLost     = ld && ld.stage === 'lost'
+      // A contact has "converted" the moment any of their clients has a
+      // signed / active / complete contract. Post-conversion the pipeline
+      // stage on lead_details becomes historical — the contact functionally
+      // belongs to the 'active' bucket regardless of whether we ever update
+      // the enum. The "leads" filter excludes these; the "active" filter
+      // includes them even when lead_details.stage is still 'discovery'.
+      const hasSignedContract = (c.clients || []).some((cl) =>
+        (cl.contracts || []).some((ct) => ['signed','active','complete'].includes(ct.status))
+      )
 
       if (stageFilter === 'all' && isLost) return false
-      if (stageFilter === 'leads'  && !inPipeline) return false
-      if (stageFilter === 'active' && !(c.status === 'active' && !inPipeline)) return false
+      if (stageFilter === 'leads'  && (!inPipeline || hasSignedContract)) return false
+      if (stageFilter === 'active' && !((c.status === 'active' || hasSignedContract) && !(inPipeline && !hasSignedContract))) return false
       if (stageFilter === 'past'   && c.status !== 'past') return false
       if (stageFilter === 'lost'   && !isLost) return false
 
