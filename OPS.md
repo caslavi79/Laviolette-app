@@ -143,7 +143,9 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   + source detection + holiday-safe MAX_GAP_HOURS; +1 in 2026-04-21
   unified-onboarding session: `regenerate-bank-link`;
   `contract-sign` + `send-invoice` modified for the same feature
-  behind `ENABLE_UNIFIED_ONBOARDING` flag — default OFF).
+  behind `ENABLE_UNIFIED_ONBOARDING` flag — **flag ON as of 2026-04-21
+  after full OFF→ON→Regenerate end-to-end test on a disposable
+  buildout contract**).
 - ✅ **Stripe webhook** — live endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`
   at `…/functions/v1/stripe-webhook`, subscribed to **14 events**.
   See "Stripe webhook" section below for the full list + behaviors.
@@ -449,7 +451,7 @@ Deliverable Schedule, not the invoice line items.
 | `BRAND_INK` | `#F4F0E8` (cream) |
 | `BRAND_LOGO_URL` | Logo URL for email HTML (currently empty string) |
 | `DEPLOY_SHA` | Short SHA of the current deploy, surfaced in `/health` response body. Safe default `'unknown'` so missing secret doesn't crash. |
-| `ENABLE_UNIFIED_ONBOARDING` | Feature flag for the unified onboarding flow. `"true"` → `contract-sign` synthesizes invoice + bank-link on buildout sign. Any other value (including unset) → existing multi-step flow. Default `"false"` at deploy time. See "Architecture: Unified onboarding flow" section. |
+| `ENABLE_UNIFIED_ONBOARDING` | Feature flag for the unified onboarding flow. **Current value: `"true"`** (set 2026-04-21 after end-to-end test). `"true"` → `contract-sign` synthesizes invoice + bank-link on buildout sign. Any other value (including unset) → existing multi-step flow. See "Architecture: Unified onboarding flow" section. |
 
 Plus auto-provided by Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 `SUPABASE_ANON_KEY`. These are always present in edge function env.
@@ -557,16 +559,14 @@ send-invoice-for-pending loop (bit-for-bit identical pre-change behavior).
 
 ### Feature flag
 
+**Current state:** `ENABLE_UNIFIED_ONBOARDING=true` on Supabase secrets (set
+2026-04-21 after the OFF→ON→Regenerate end-to-end test passed). Every new
+buildout `contract-sign` invocation runs the unified branch.
+
 | Setting | Value | Effect |
 |---|---|---|
-| Unset / empty / `"false"` | default | Existing flow. `contract-sign` never synthesizes an invoice. |
-| `"true"` | unified ON | `contract-sign` synthesizes invoice + bank-link + fires unified email on buildout signs. |
-
-**Enable (when ready, after test-contract validation):**
-```bash
-npx supabase@latest secrets set ENABLE_UNIFIED_ONBOARDING=true \
-  --project-ref sukcufgjptllzucbneuj
-```
+| Unset / empty / `"false"` | (rollback) | `contract-sign` never synthesizes an invoice. Existing flow. |
+| `"true"` | **live** | `contract-sign` synthesizes invoice + bank-link + fires unified email on buildout signs. |
 
 **Rollback (any time):**
 ```bash
@@ -574,9 +574,40 @@ npx supabase@latest secrets set ENABLE_UNIFIED_ONBOARDING=false \
   --project-ref sukcufgjptllzucbneuj
 ```
 
+**Re-enable (if rolled back):**
+```bash
+npx supabase@latest secrets set ENABLE_UNIFIED_ONBOARDING=true \
+  --project-ref sukcufgjptllzucbneuj
+```
+
 Edge functions pick up the new value on the next invocation (no redeploy
 needed — Deno reads env at runtime). Existing Nicole / Viktoriia / Dustin
-invoice rows are unaffected either direction.
+invoice rows are unaffected in either direction. Any buildout signed
+under flag=ON keeps its synthesized invoice + bank-link URL through any
+subsequent rollback — rollback only affects *future* signs.
+
+### Validation record (2026-04-21)
+
+Full end-to-end cycle against a disposable buildout contract with
+`signer_email=caslavi79@gmail.com`:
+
+- **OFF regression:** contract signed under flag=false → zero invoice
+  synthesized, zero DLQ, LV-001..006 fingerprints unchanged, bare
+  `{success:true}` response.
+- **Flag flipped ON** via `supabase secrets set`.
+- **ON validation:** second contract signed under flag=true → LV-2026-007
+  synthesized with `bank_link_url` + `sent_date` stamped, Stripe session
+  with both `laviolette_contract_id` + `laviolette_invoice_id` metadata
+  (confirms `checkout.sessions.update` backfill works on setup-mode
+  sessions), ONE email delivered with copper CTA button, response
+  included `invoice_id` + `bank_link_url`.
+- **Regenerate:** clicked "Regenerate bank-link" on LV-007 → fresh
+  `cs_live_…` session minted, overwrote `bank_link_url`, fresh email
+  delivered, old session stayed `status=open` (superseded but not
+  instantly invalidated — harmless).
+- **Cleanup:** all test rows DELETEd in single transaction. Stripe
+  customer `cus_UNW150fcvgvWJn` kept as audit trail. LV-001..006
+  fingerprints identical to the pre-test baseline.
 
 ### Flow through a unified buildout onboarding
 
@@ -880,6 +911,6 @@ single-user app).
 | DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead→active-in-flight, Viktoriia Jones lead→active-in-flight) |
 | Contracts | 4 signed (Dustin) + 1 draft (Exodus) + **2 signed 2026-04-21 extended** (Nicole, Viktoriia) — both buildouts, Variant C, $1,700 each, ACH fired same day |
 | Last frontend deploy | 2026-04-21 unified-onboarding: `index-BKS968Ck.js` / `index-DXISWbym.css` (Money.jsx adds Regenerate bank-link button conditional on `bank_link_url` set — retainer rows unchanged). |
-| Last edge-function deploy | 2026-04-21 unified-onboarding: `contract-sign`, `send-invoice`, `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=false` set on secrets. `deploy-edge.sh` now lists 19 (added `regenerate-bank-link`). |
+| Last edge-function deploy | 2026-04-21 unified-onboarding: `contract-sign`, `send-invoice`, `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=true` (flipped from false after OFF→ON→Regenerate end-to-end test passed same day). `deploy-edge.sh` now lists 19 (added `regenerate-bank-link`). |
 | Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
 | Unpushed local commits on `main` | **0** — all 30 commits from 2026-04-21 (27 extended + 3 unified-onboarding) pushed at session end. Origin HEAD matches local HEAD at `9165446`. |
