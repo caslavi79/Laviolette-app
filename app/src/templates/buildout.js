@@ -206,6 +206,7 @@ ${v.deliverables_table_html || '<p><em>No deliverables defined yet. Add delivera
   <p>Email for Notices: ${esc(v.provider_email)}</p>
 </div>
 
+<!-- client-sig-block -->
 <div class="sig-block">
   <p style="font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:1px;">CLIENT</p>
   <div class="sig-line"></div>
@@ -214,6 +215,7 @@ ${v.deliverables_table_html || '<p><em>No deliverables defined yet. Add delivera
   <p>Signing Date: _______________</p>
   <p>Email for Notices: ${esc(v.client_email)}</p>
 </div>
+<!-- /client-sig-block -->
 
 <div class="footer">${esc(v.brand_name)} | Build-Out Services Agreement</div>
 

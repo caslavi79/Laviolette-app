@@ -56,6 +56,31 @@ function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
 }
 
+// Verify the provided signature_data is actually a PNG, not an arbitrary
+// base64-string-shaped blob. Canvas on the /sign page always produces PNGs;
+// this catches malformed/spoofed input before it's baked into filled_html.
+// Checks the first 8 bytes against the PNG magic signature: 89 50 4E 47 0D 0A 1A 0A.
+function isPngDataUrl(signatureData: string): boolean {
+  const base64 = signatureData.replace(/^data:image\/(png|x-png);base64,/i, '')
+  try {
+    // Decode just enough to read the 8-byte magic header (base64 packs 3 bytes per 4 chars)
+    const prefix = atob(base64.slice(0, 12))
+    if (prefix.length < 8) return false
+    return (
+      prefix.charCodeAt(0) === 0x89 &&
+      prefix.charCodeAt(1) === 0x50 &&
+      prefix.charCodeAt(2) === 0x4E &&
+      prefix.charCodeAt(3) === 0x47 &&
+      prefix.charCodeAt(4) === 0x0D &&
+      prefix.charCodeAt(5) === 0x0A &&
+      prefix.charCodeAt(6) === 0x1A &&
+      prefix.charCodeAt(7) === 0x0A
+    )
+  } catch {
+    return false
+  }
+}
+
 function json(body: unknown, status: number, headers: Record<string, string>) {
   return new Response(JSON.stringify(body), { status, headers: { ...headers, 'Content-Type': 'application/json' } })
 }
@@ -149,6 +174,9 @@ Deno.serve(async (req: Request) => {
     if (typeof signature_data !== 'string' || signature_data.length < 100 || signature_data.length > 500_000) {
       return json({ success: false, error: 'Signature image required.' }, 400, corsHeaders)
     }
+    if (!isPngDataUrl(signature_data)) {
+      return json({ success: false, error: 'Signature image must be a PNG.' }, 400, corsHeaders)
+    }
 
     const signerIp =
       req.headers.get('x-real-ip') ||
@@ -163,7 +191,7 @@ Deno.serve(async (req: Request) => {
     const signedDateLong = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     const signedAt = new Date().toISOString()
     const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-    const clientSigHtml = `
+    const clientSigHtml = `<!-- client-sig-block -->
 <div class="sig-block">
   <p style="font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:1px;">CLIENT</p>
   <div style="margin:16px 0 2px;"><img src="${signature_data}" alt="Client signature" style="max-width:300px; max-height:100px; display:block;" /></div>
@@ -173,18 +201,25 @@ Deno.serve(async (req: Request) => {
   <p>Signing Date: ${signedDateLong}</p>
   <p class="sig-provider-note">Signed electronically by ${escHtml(signer_name.trim())} under the U.S. ESIGN Act and UETA. IP: ${escHtml(signerIp)} · ${signedAt}</p>
   <p>Email for Notices: ${escHtml(contract.signer_email || contract.clients?.billing_email || '')}</p>
-</div>`.trim()
+</div>
+<!-- /client-sig-block -->`.trim()
 
-    // Surgical replacement: swap the blank client sig block with the filled-in one.
-    // Template format is consistent enough that we can find it by the CLIENT header
-    // + Signing Date placeholder. If the block can't be found, fall back to the
-    // original filled_html (so we never corrupt the contract).
-    const clientBlockRegex =
+    // Surgical replacement: swap the blank CLIENT sig block with the filled-in one.
+    // Primary match: HTML comment markers added to the templates (stable across
+    // any style/class/whitespace drift). Fallback: the original class-based regex
+    // for any draft contract generated before the markers were introduced. If
+    // neither matches, fall through to the unmodified filled_html (defensive —
+    // we never corrupt the contract; the signature_data column still holds the
+    // captured image for audit).
+    const markerRegex = /<!-- client-sig-block -->[\s\S]*?<!-- \/client-sig-block -->/
+    const legacyClassRegex =
       /<div class="sig-block">\s*<p style="font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:1px;">CLIENT<\/p>[\s\S]*?Signing Date: _______________[\s\S]*?<\/div>/
     const originalHtml: string = contract.filled_html || ''
-    const signedHtml = clientBlockRegex.test(originalHtml)
-      ? originalHtml.replace(clientBlockRegex, clientSigHtml)
-      : originalHtml
+    const signedHtml = markerRegex.test(originalHtml)
+      ? originalHtml.replace(markerRegex, clientSigHtml)
+      : legacyClassRegex.test(originalHtml)
+        ? originalHtml.replace(legacyClassRegex, clientSigHtml)
+        : originalHtml
 
     // Atomic: only sign if still in a signable state
     const { data: updated, error: updErr } = await supabase
