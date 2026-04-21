@@ -162,14 +162,26 @@ Deno.serve(async (req: Request) => {
       livemode: event.livemode ?? true,
     })
   if (idemErr) {
-    // 23505 = Postgres unique_violation. That means we've already processed this event.id.
-    // Everything else we treat as a hard error so Stripe retries.
+    // Retry semantics: 23505 (Postgres unique_violation) means the event.id is
+    // already in the tracking table — we've handled it on a prior delivery, so
+    // silently acknowledge as a duplicate. Any other error code means the
+    // insert failed WITHOUT establishing the row (e.g., transient DB flake,
+    // connection drop). In that case we must clean up any partial row before
+    // returning 500 so Stripe's retry can INSERT fresh + run the handler. If
+    // we skipped the delete, a spurious 23505 on the retry would cause Stripe
+    // to mark the event as duplicate-handled and the handler would never run.
     if ((idemErr as { code?: string }).code === '23505') {
       return new Response(JSON.stringify({ received: true, duplicate: true, event_id: event.id }), {
         headers: { 'Content-Type': 'application/json' },
       })
     }
     console.error('Failed to record event for idempotency:', idemErr)
+    // Best-effort cleanup — if the partial row never landed the DELETE no-ops;
+    // if it did land the DELETE clears it so Stripe's retry can INSERT fresh.
+    await admin.from('stripe_events_processed').delete().eq('event_id', event.id).then(
+      () => {},
+      (e) => console.error(`idempotency cleanup delete also failed for ${event.id}: ${(e as Error).message}`),
+    )
     return new Response(JSON.stringify({ error: 'idempotency insert failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
