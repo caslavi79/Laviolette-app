@@ -54,17 +54,23 @@ function StatusPill({ status, map = STATUS_COLOR }) {
   return <span style={badgeStyle(color)}>{status}</span>
 }
 
-// Renders lead_details.stage when present, falling back to
-// contacts.status (party_status enum) when the contact has no
-// lead_details row.
+// Renders lead_details.stage when present. Without a lead_details
+// row the pill only surfaces when it carries real signal:
+//   active → no pill (default assumption for established clients;
+//            a green 'active' tag on every row is noise, not signal)
+//   past   → muted slate pill (useful "wound down" signal)
+//   lead   → neutral tan pill (orphan lead, shouldn't typically
+//            happen — a lead should have a lead_details row — but
+//            handle gracefully if one slips through)
 function StagePill({ contact }) {
   const ld = leadDetailsOf(contact)
   if (ld) {
     const color = LEAD_STAGE_COLOR[ld.stage] || COLORS.steel
     return <span style={badgeStyle(color)}>{LEAD_STAGE_LABEL[ld.stage] || ld.stage}</span>
   }
-  const color = STATUS_COLOR[contact.status] || COLORS.steel
-  return <span style={badgeStyle(color)}>{contact.status}</span>
+  if (contact.status === 'past') return <span style={badgeStyle(COLORS.slate)}>past</span>
+  if (contact.status === 'lead') return <span style={badgeStyle('#9B8B73')}>lead</span>
+  return null
 }
 
 function StaleBadge() {
@@ -75,7 +81,6 @@ function StaleBadge() {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
-        marginLeft: 6,
         fontFamily: 'var(--label)',
         fontSize: 10,
         fontWeight: 700,
@@ -432,7 +437,7 @@ export default function Contacts() {
                       </div>
                     </div>
                     <div className="contact-row-meta">
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <StagePill contact={c} />
                         {isStale && <StaleBadge />}
                       </div>
@@ -544,7 +549,7 @@ function ContactDetail({
           </div>
         </div>
         <div className="detail-header-actions">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <StagePill contact={contact} />
             {isStale && <StaleBadge />}
           </div>
