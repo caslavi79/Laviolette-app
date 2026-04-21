@@ -49,6 +49,8 @@ function InvoicesTab() {
   const [err, setErr] = useState('')
   const [chargingId, setChargingId] = useState(null)
   const [chargeResult, setChargeResult] = useState(null)
+  const [regeneratingId, setRegeneratingId] = useState(null)
+  const [regenerateResult, setRegenerateResult] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -119,6 +121,42 @@ function InvoicesTab() {
     }
   }
 
+  // Regenerate a stale Stripe Checkout bank-link for invoices created under
+  // the unified onboarding flow. Appears next to "Charge via ACH" when an
+  // invoice has bank_link_url set but no PaymentIntent yet — typically
+  // because the 24h session expired before the client completed the flow.
+  // Mirrors chargeInvoice's double-click guard.
+  const regenerateBankLink = async (inv) => {
+    if (regeneratingId !== null || chargingId !== null) return
+    setRegeneratingId(inv.id); setRegenerateResult(null); setErr('')
+    if (!confirm(`Regenerate bank-link for ${inv.clients?.legal_name || inv.clients?.name} and re-send the invoice email with the fresh link?`)) {
+      setRegeneratingId(null)
+      return
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated.')
+      const base = import.meta.env.VITE_SUPABASE_URL
+      const resp = await fetch(`${base}/functions/v1/regenerate-bank-link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invoice_id: inv.id }),
+      })
+      const payload = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`)
+      setRegenerateResult({ ok: true, invoice_id: inv.id, ...payload })
+      load()
+    } catch (e) {
+      setRegenerateResult({ ok: false, invoice_id: inv.id, error: e.message })
+    } finally {
+      setRegeneratingId(null)
+    }
+  }
+
   // Group invoices
   const groups = useMemo(() => {
     const out = { overdue: [], due_month: [], coming_up: [], paid: [] }
@@ -168,10 +206,10 @@ function InvoicesTab() {
 
       {loading ? <div className="loading">Loading…</div> : (
         <>
-          <InvoiceGroup label="Overdue / partially paid" color={COLORS.red} rows={groups.overdue} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
-          <InvoiceGroup label="Due this month" color={COLORS.amber} rows={groups.due_month} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
-          <InvoiceGroup label="Coming up" color={COLORS.steel} rows={groups.coming_up} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
-          <InvoiceGroup label="Paid" color={COLORS.green} rows={groups.paid} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} collapsedByDefault />
+          <InvoiceGroup label="Overdue / partially paid" color={COLORS.red} rows={groups.overdue} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} regenerateBankLink={regenerateBankLink} regeneratingId={regeneratingId} regenerateResult={regenerateResult} />
+          <InvoiceGroup label="Due this month" color={COLORS.amber} rows={groups.due_month} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} regenerateBankLink={regenerateBankLink} regeneratingId={regeneratingId} regenerateResult={regenerateResult} />
+          <InvoiceGroup label="Coming up" color={COLORS.steel} rows={groups.coming_up} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} regenerateBankLink={regenerateBankLink} regeneratingId={regeneratingId} regenerateResult={regenerateResult} />
+          <InvoiceGroup label="Paid" color={COLORS.green} rows={groups.paid} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} regenerateBankLink={regenerateBankLink} regeneratingId={regeneratingId} regenerateResult={regenerateResult} collapsedByDefault />
         </>
       )}
 
@@ -196,7 +234,7 @@ function InvoicesTab() {
   )
 }
 
-function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, chargeInvoice, chargingId, chargeResult, collapsedByDefault }) {
+function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, chargeInvoice, chargingId, chargeResult, regenerateBankLink, regeneratingId, regenerateResult, collapsedByDefault }) {
   const [open, setOpen] = useState(!collapsedByDefault)
   if (rows.length === 0) return null
   const total = rows.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
@@ -222,6 +260,9 @@ function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, cha
               chargeInvoice={chargeInvoice}
               chargingId={chargingId}
               chargeResult={chargeResult}
+              regenerateBankLink={regenerateBankLink}
+              regeneratingId={regeneratingId}
+              regenerateResult={regenerateResult}
             />
           ))}
         </ul>
@@ -264,7 +305,7 @@ function invoiceSystemState(inv, isOverdue) {
   return { label: inv.status, message: 'Ready to charge. Click "Charge via ACH" or wait for auto-push at 4:05 PM CT on the business day before the due date.' }
 }
 
-function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargingId, chargeResult }) {
+function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargingId, chargeResult, regenerateBankLink, regeneratingId, regenerateResult }) {
   const du = daysUntil(inv.due_date)
   const isOverdue = (inv.status === 'overdue') || (inv.status === 'pending' && du !== null && du < 0)
   const sys = invoiceSystemState(inv, isOverdue)
@@ -332,6 +373,23 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
               && !inv.clients?.bank_info_on_file && (
               <span className="invoice-bank-hint">Waiting on client bank setup</span>
             )}
+            {/* Regenerate bank-link: appears next to "Charge via ACH" when the
+                invoice has a unified-flow bank_link_url but no PaymentIntent yet.
+                Typically used when the 24h Stripe Checkout session expired before
+                the client linked their bank. */}
+            {inv.bank_link_url
+              && inv.status === 'pending'
+              && !inv.stripe_payment_intent_id
+              && !inv.stripe_invoice_id && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => regenerateBankLink(inv)}
+                disabled={regeneratingId === inv.id || chargingId === inv.id}
+                title="Mint a fresh Stripe Checkout session and re-send the invoice email with the new link"
+              >
+                {regeneratingId === inv.id ? 'Regenerating…' : 'Regenerate bank-link'}
+              </button>
+            )}
             {inv.status !== 'paid' && inv.status !== 'void' && (
               <button className="btn btn-secondary" onClick={() => setModal({ kind: 'paid', data: inv })}>Mark paid</button>
             )}
@@ -346,6 +404,17 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
                 <>✓ Pushed to Stripe — ACH debit initiated (3-5 days to clear)</>
               ) : (
                 <>✗ {chargeResult.error}</>
+              )}
+            </div>
+          )}
+          {regenerateResult?.invoice_id === inv.id && (
+            <div className={regenerateResult.ok ? 'send-result send-result--ok' : 'send-result send-result--warn'}>
+              {regenerateResult.ok ? (
+                regenerateResult.email_sent
+                  ? <>✓ Fresh bank-link sent to {regenerateResult.sent_to || 'the client'}</>
+                  : <>⚠ Bank-link regenerated but email failed ({regenerateResult.email_error || 'unknown error'}). Check /notifications.</>
+              ) : (
+                <>✗ {regenerateResult.error}</>
               )}
             </div>
           )}
