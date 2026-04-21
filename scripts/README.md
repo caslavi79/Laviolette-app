@@ -157,7 +157,7 @@ inside the file for examples.
 
 ## deploy-edge.sh
 
-Deploys all **18 production** Supabase Edge Functions with `--no-verify-jwt`
+Deploys all **19 production** Supabase Edge Functions with `--no-verify-jwt`
 (required — several are public like `contract-sign`, `health`, or invoked by
 cron with their own `?key=` auth). `run-pipeline-test` is intentionally
 excluded — it's a manual ops tool and should not auto-redeploy on every run.

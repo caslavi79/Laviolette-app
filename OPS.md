@@ -119,7 +119,7 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Current state (as of 2026-04-21)
 
-- ✅ **Database** — **26 migrations applied** (19 at 2026-04-17 + 6
+- ✅ **Database** — **28 migrations applied** (19 at 2026-04-17 + 6
   in 2026-04-20 session: `contacts_lead_tracking`,
   `contacts_lead_backfill_fix`, `work_log`, `work_log_count_column`,
   `monthly_recaps`, `health_checks`; + 1 in 2026-04-21 extended
@@ -261,7 +261,7 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Edge functions
 
-All 19 are in `supabase/functions/`. Shared helpers in `_shared/`:
+All 20 are in `supabase/functions/` (19 production + `run-pipeline-test` manual-only). Shared helpers in `_shared/`:
 - `client-emails.ts` — email templates + `sendClientEmail` helper + 13
   internal notification kinds.
 - `business-days.ts` — federal holiday + NACHA business-day math
@@ -430,7 +430,7 @@ Deliverable Schedule, not the invoice line items.
 
 ### Secrets (Supabase Dashboard → Functions → Secrets)
 
-17 secrets total. Set via `npx supabase@latest secrets set NAME=value`:
+18 secrets total. Set via `npx supabase@latest secrets set NAME=value`:
 
 | Secret | Purpose |
 |---|---|
