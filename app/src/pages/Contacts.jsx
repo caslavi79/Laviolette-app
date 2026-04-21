@@ -69,7 +69,7 @@ function StagePill({ contact }) {
   // A frozen lead_details.stage='discovery' would otherwise mislabel a
   // client who's signed + paying.
   const hasSignedContract = (contact.clients || []).some((cl) =>
-    (cl.contracts || []).some((ct) => ['signed','active','complete'].includes(ct.status))
+    (cl.contracts || []).some((ct) => !['draft','sent'].includes(ct.status))
   )
   if (hasSignedContract) return <span style={badgeStyle(COLORS.green)}>active</span>
   if (ld) {
@@ -303,7 +303,7 @@ export default function Contacts() {
       // the enum. The "leads" filter excludes these; the "active" filter
       // includes them even when lead_details.stage is still 'discovery'.
       const hasSignedContract = (c.clients || []).some((cl) =>
-        (cl.contracts || []).some((ct) => ['signed','active','complete'].includes(ct.status))
+        (cl.contracts || []).some((ct) => !['draft','sent'].includes(ct.status))
       )
 
       if (stageFilter === 'all' && isLost) return false
