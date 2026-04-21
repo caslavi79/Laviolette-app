@@ -5,6 +5,7 @@
 //
 // Adapted from Sheepdog's reference. No JWT verification — public by design.
 
+import Stripe from 'https://esm.sh/stripe@17?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 function env(key: string): string {
@@ -21,6 +22,18 @@ const BRAND_FROM_EMAIL = Deno.env.get('BRAND_FROM_EMAIL') || 'noreply@laviolette
 const BRAND_REPLY_TO = Deno.env.get('BRAND_REPLY_TO') || 'case.laviolette@gmail.com'
 const BRAND_COLOR = (Deno.env.get('BRAND_COLOR') || '#B8845A').replace(/[^#0-9A-Fa-f]/g, '').slice(0, 7) || '#B8845A'
 const CASE_NOTIFY = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.com'
+
+// Unified onboarding (feature-flagged, OFF by default). When "true" AND the
+// signed contract is a buildout AND the project has no non-void invoices yet,
+// the handler synthesizes an invoice + a Stripe Checkout session for bank-
+// linking + fires ONE unified email via send-invoice (containing both the
+// invoice document and the bank-link CTA). When "false" / unset / not a
+// buildout / invoice already exists, behavior is bit-for-bit identical to
+// pre-change (falls through to the existing send-invoice-for-pending loop).
+const ENABLE_UNIFIED_ONBOARDING = Deno.env.get('ENABLE_UNIFIED_ONBOARDING') === 'true'
+const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') || ''
+const STRIPE_SUCCESS_URL = Deno.env.get('STRIPE_SUCCESS_URL') || 'https://app.laviolette.io/setup-success'
+const STRIPE_CANCEL_URL = Deno.env.get('STRIPE_CANCEL_URL') || 'https://app.laviolette.io/setup-cancel'
 
 const ALLOWED_ORIGINS = [
   'https://app.laviolette.io',
@@ -290,12 +303,210 @@ Deno.serve(async (req: Request) => {
     // Fire-and-forget but we're tracking failures in DLQ
     Promise.allSettled(confirmPromises)
 
+    // Unified onboarding branch (feature-flagged, buildout-only). When the
+    // flag is ON and this is a fresh buildout project (no non-void invoices
+    // yet), synthesize the invoice + Stripe Checkout session for bank-linking
+    // + fire a single send-invoice call that renders the bank-link CTA in the
+    // same email as the invoice document. Replaces the existing "send-invoice
+    // for pre-existing pending rows" loop when it fires successfully.
+    let unifiedInvoiceId: string | null = null
+    let unifiedBankLinkUrl: string | null = null
+    let unifiedSkipExistingLoop = false
+
+    if (ENABLE_UNIFIED_ONBOARDING && contract.type === 'buildout' && contract.project_id) {
+      // Idempotency: any non-void invoice on this project means we've been
+      // here before (or an operator pre-created one via the old path). Skip
+      // synthesis and let the existing loop fire send-invoice for pending rows.
+      const { count: existingCount, error: countErr } = await supabase
+        .from('invoices')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', contract.project_id)
+        .neq('status', 'void')
+      if (countErr) {
+        console.error(`[contract-sign:unified] idempotency check failed: ${countErr.message}`)
+        // Don't fail the sign — fall through to existing loop as a conservative default.
+      } else if (existingCount && existingCount > 0) {
+        console.warn(`[contract-sign:unified] project ${contract.project_id} already has ${existingCount} non-void invoice(s); skipping synthesis, falling through.`)
+      } else {
+        // Synthesize. Structured as a nested async so each stage reports its
+        // own failure context for the DLQ payload.
+        type SynthResult =
+          | { ok: true; invoice_id: string; invoice_number: string; bank_link_url: string }
+          | { ok: false; error: string; stage: string }
+        const synthesize = async (): Promise<SynthResult> => {
+          if (!STRIPE_SECRET_KEY) {
+            return { ok: false, error: 'STRIPE_SECRET_KEY not configured', stage: 'preflight' }
+          }
+          // Load the client for stripe_customer_id + display name
+          const { data: clientRow, error: clientErr } = await supabase
+            .from('clients')
+            .select('stripe_customer_id, legal_name, name')
+            .eq('id', contract.client_id)
+            .single()
+          if (clientErr || !clientRow) {
+            return { ok: false, error: `Failed to load client: ${clientErr?.message || 'not found'}`, stage: 'client-load' }
+          }
+          if (!clientRow.stripe_customer_id) {
+            return { ok: false, error: 'Client has no stripe_customer_id — set one on the Contacts page.', stage: 'client-preflight' }
+          }
+          // Contract must have a positive total_fee + a future-or-today due date
+          const totalFee = parseFloat(String(contract.total_fee ?? 0))
+          if (!(totalFee > 0)) {
+            return { ok: false, error: `Contract total_fee must be positive (got ${contract.total_fee}).`, stage: 'contract-preflight' }
+          }
+          if (!contract.effective_date) {
+            return { ok: false, error: 'Contract has no effective_date — cannot derive due_date for invoice.', stage: 'contract-preflight' }
+          }
+          // Stripe Checkout session FIRST so a failure leaves no orphan invoice
+          const stripe = new Stripe(STRIPE_SECRET_KEY)
+          const clientDisplayName = clientRow.legal_name || clientRow.name || ''
+          let session: Stripe.Checkout.Session
+          try {
+            session = await stripe.checkout.sessions.create({
+              customer: clientRow.stripe_customer_id,
+              mode: 'setup',
+              payment_method_types: ['us_bank_account'],
+              payment_method_options: {
+                us_bank_account: {
+                  financial_connections: { permissions: ['payment_method'] },
+                  verification_method: 'instant',
+                },
+              },
+              success_url: `${STRIPE_SUCCESS_URL}?client=${encodeURIComponent(clientDisplayName)}`,
+              cancel_url: STRIPE_CANCEL_URL,
+              metadata: {
+                laviolette_contract_id: contract.id,
+              },
+            })
+          } catch (e) {
+            return { ok: false, error: `Stripe Checkout session creation failed: ${(e as Error).message}`, stage: 'stripe-checkout' }
+          }
+          if (!session.url) {
+            return { ok: false, error: 'Stripe returned a session without a URL.', stage: 'stripe-checkout' }
+          }
+          // Allocate invoice number via the LV-YYYY-NNN RPC
+          const { data: seq, error: seqErr } = await supabase.rpc('next_invoice_number')
+          if (seqErr || typeof seq !== 'string') {
+            return { ok: false, error: `Failed to allocate invoice number: ${seqErr?.message || 'unexpected return type'}`, stage: 'invoice-number' }
+          }
+          // Insert the invoice WITH bank_link_url already populated so the
+          // send-invoice template always sees a consistent state — it either
+          // has the URL or doesn't, never transiently-null during render.
+          const { data: newInv, error: insErr } = await supabase
+            .from('invoices')
+            .insert({
+              invoice_number: seq,
+              project_id: contract.project_id,
+              brand_id: contract.brand_id,
+              client_id: contract.client_id,
+              description: contract.name,
+              line_items: [{ description: contract.name, amount: totalFee }],
+              subtotal: totalFee,
+              tax: 0,
+              total: totalFee,
+              status: 'pending',
+              due_date: contract.effective_date,
+              payment_method: 'stripe_ach',
+              bank_link_url: session.url,
+            })
+            .select('id, invoice_number')
+            .single()
+          if (insErr || !newInv) {
+            // Stripe session is already created — it orphans harmlessly in 24h.
+            return { ok: false, error: `Invoice insert failed: ${insErr?.message || 'no row returned'}`, stage: 'invoice-insert' }
+          }
+          // Backfill the Stripe session metadata with invoice_id for audit trail.
+          // Non-fatal: the webhook doesn't rely on this metadata — it uses
+          // session.customer to find the client row. Best-effort only.
+          //
+          // Setup-mode caveat: the public Stripe API docs for
+          // checkout.sessions.update don't explicitly enumerate which modes
+          // accept metadata updates. Empirically metadata is a universal
+          // Stripe primitive and this has worked in practice, but if Stripe
+          // ever tightens setup-mode restrictions, we need enough context in
+          // the log to correlate session ↔ invoice without re-querying Stripe.
+          try {
+            await stripe.checkout.sessions.update(session.id, {
+              metadata: {
+                laviolette_contract_id: contract.id,
+                laviolette_invoice_id: newInv.id,
+              },
+            })
+          } catch (e) {
+            const errMsg = (e as Error).message
+            const stripeErr = e as { code?: string; type?: string; statusCode?: number }
+            const errCode = stripeErr.code || stripeErr.type || 'unknown'
+            const statusCode = stripeErr.statusCode ?? 'n/a'
+            console.error(
+              `[contract-sign:unified] checkout.sessions.update metadata backfill failed (non-fatal). ` +
+              `session=${session.id} invoice=${newInv.id} (${newInv.invoice_number}) ` +
+              `contract=${contract.id} stripe_status=${statusCode} stripe_code=${errCode} ` +
+              `msg=${errMsg.slice(0, 300)}`
+            )
+          }
+          // Fire send-invoice fire-and-forget. send-invoice is idempotent via
+          // sent_date and persists its own DLQ entries on Resend failure, so
+          // errors here never block the sign response.
+          const FUNC_BASE = `${SUPABASE_URL}/functions/v1`
+          const REMINDERS_SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+          fetch(`${FUNC_BASE}/send-invoice?key=${encodeURIComponent(REMINDERS_SECRET)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoice_id: newInv.id }),
+          }).then(async (r) => {
+            if (!r.ok) {
+              const txt = await r.text()
+              console.error(`[contract-sign:unified] send-invoice ${newInv.invoice_number} returned ${r.status}: ${txt.slice(0, 200)}`)
+            } else {
+              console.log(`[contract-sign:unified] send-invoice fired for ${newInv.invoice_number}`)
+            }
+          }).catch((e) => {
+            console.error(`[contract-sign:unified] send-invoice fetch failed: ${(e as Error).message}`)
+          })
+          return { ok: true, invoice_id: newInv.id, invoice_number: newInv.invoice_number, bank_link_url: session.url }
+        }
+        const result = await synthesize()
+        if (!result.ok) {
+          // Contract is already signed — can't roll back. Log to DLQ so Case
+          // gets an alert + has recovery context (project_id, contract_id,
+          // failure stage). Manual recovery: `npm run stripe-setup` + create
+          // invoice via the Money tab.
+          await supabase.from('notification_failures').insert({
+            kind: 'internal',
+            context: `contract-sign:bank-link-failure:${contract.id}`,
+            subject: `⚠ Unified onboarding failed (${result.stage}): ${contract.name}`,
+            to_email: CASE_NOTIFY,
+            error: result.error.slice(0, 500),
+            payload: {
+              contract_id: contract.id,
+              project_id: contract.project_id,
+              client_id: contract.client_id,
+              stage: result.stage,
+              note: 'Contract is signed. Synthesis failed AFTER sign commit. Manual recovery: npm run stripe-setup for bank-link, then create invoice via Money tab.',
+            },
+          }).then(() => {}, (e) => console.error(`[contract-sign:unified] DLQ persist failed: ${(e as Error).message}`))
+          return json({
+            success: false,
+            error: 'Invoice synthesis failed after sign. Case has been alerted and will follow up.',
+            contract_signed: true,
+          }, 500, corsHeaders)
+        }
+        unifiedInvoiceId = result.invoice_id
+        unifiedBankLinkUrl = result.bank_link_url
+        unifiedSkipExistingLoop = true
+      }
+    }
+
     // Auto-send any pending invoices for this contract's project. The client
     // gets their invoice document immediately on signing — before any ACH
     // charge fires. send-invoice is idempotent (skips if sent_date already set)
     // and persists send failures to the DLQ on its own, so this fire-and-forget
     // is safe and non-blocking.
-    if (contract.project_id) {
+    //
+    // Skipped when the unified onboarding branch above fired successfully —
+    // it already invoked send-invoice for the newly-synthesized row, and
+    // re-firing here would double-send the invoice email.
+    if (contract.project_id && !unifiedSkipExistingLoop) {
       const { data: pendingInvoices } = await supabase
         .from('invoices')
         .select('id, invoice_number')
@@ -324,7 +535,10 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return json({ success: true }, 200, corsHeaders)
+    return json({
+      success: true,
+      ...(unifiedInvoiceId ? { invoice_id: unifiedInvoiceId, bank_link_url: unifiedBankLinkUrl } : {}),
+    }, 200, corsHeaders)
   }
 
   return new Response('Method not allowed', { status: 405, headers: corsHeaders })

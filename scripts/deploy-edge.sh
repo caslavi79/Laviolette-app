@@ -48,6 +48,7 @@ FUNCTIONS=(
   "generate-monthly-recaps"
   "generate-retainer-invoices"
   "health"
+  "regenerate-bank-link"
   "retry-notification"
   "send-invoice"
   "send-manual-receipt"

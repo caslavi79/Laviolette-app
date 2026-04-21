@@ -74,6 +74,7 @@ function buildInvoiceEmail(d: {
   dueDate: string
   lineItems: LineItem[]
   paymentMethod: string
+  bankLinkUrl?: string | null
 }): { subject: string; html: string } {
   const subject = `Invoice ${d.invoiceNumber} — ${d.brandName} — ${fmtMoney(d.total)}`
 
@@ -86,7 +87,17 @@ function buildInvoiceEmail(d: {
     ? d.lineItems.map((li) => `<tr><td style="padding:10px 14px;border-bottom:1px solid rgba(18,16,13,0.06);font-size:13px;color:rgba(18,16,13,0.85)">${esc(li.name)}</td><td style="padding:10px 14px;border-bottom:1px solid rgba(18,16,13,0.06);font-size:13px;color:rgba(18,16,13,0.7);text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(li.amount)}</td></tr>`).join('')
     : `<tr><td colspan="2" style="padding:14px;font-style:italic;color:rgba(18,16,13,0.55);text-align:center;font-size:13px">${esc(d.description)}</td></tr>`
 
-  const html = `<table role="presentation" style="width:100%;max-width:580px;margin:0 auto;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:${BRAND_INK};background:#fff;border:1px solid rgba(18,16,13,0.12)"><tr><td style="padding:24px 20px 8px"><div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:2px;color:${BRAND_ACCENT};text-transform:uppercase;margin-bottom:4px">Invoice</div><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;font-weight:400;color:${BRAND_INK};line-height:1.15">${esc(d.invoiceNumber)}</div></td><td style="padding:24px 20px 8px;text-align:right;vertical-align:bottom"><div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.5);text-transform:uppercase;margin-bottom:2px">Total Due</div><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:24px;color:${BRAND_INK};font-variant-numeric:tabular-nums">${fmtMoney(d.total)}</div></td></tr><tr><td colspan="2" style="padding:8px 20px 0;font-size:14px;line-height:1.55;color:${BRAND_INK}">Hi ${esc(d.clientName)},</td></tr><tr><td colspan="2" style="padding:10px 20px 18px;font-size:14px;line-height:1.55;color:${BRAND_INK}">Thanks for signing. Here's your invoice for the engagement. The full amount will be debited via ACH from the bank account you linked. If you haven't yet linked your bank, please do that now. If you have, you don't need to do anything else.</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04);border-top:1px solid rgba(18,16,13,0.08);width:40%">Invoice number</td><td style="padding:8px 20px;color:${BRAND_INK};font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(184,132,90,0.04);border-top:1px solid rgba(18,16,13,0.08)">${esc(d.invoiceNumber)}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04)">Brand</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04)">${esc(d.brandName)}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04)">Due date</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04)">${esc(fmtDate(d.dueDate))}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04);border-bottom:1px solid rgba(18,16,13,0.08)">Payment method</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04);border-bottom:1px solid rgba(18,16,13,0.08)">${esc(d.paymentMethod)}</td></tr><tr><td style="padding:14px 20px 8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.55);text-transform:uppercase">Item</td><td style="padding:14px 20px 8px;text-align:right;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.55);text-transform:uppercase">Amount</td></tr>${lineItemsTableRows}<tr><td style="padding:14px 20px;font-weight:600;border-top:2px solid ${BRAND_INK};color:${BRAND_INK};font-size:14px">Total Due</td><td style="padding:14px 20px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid ${BRAND_INK};color:${BRAND_INK};font-variant-numeric:tabular-nums">${fmtMoney(d.total)}</td></tr><tr><td colspan="2" style="padding:14px 20px 6px;font-size:12px;color:rgba(18,16,13,0.65);line-height:1.55">A receipt will follow once the ACH clears (typically 3 to 5 business days). Questions? Reply to this email.</td></tr><tr><td colspan="2" style="padding:6px 20px 20px;font-size:11px;color:rgba(18,16,13,0.5);line-height:1.55"><strong style="color:${BRAND_ACCENT};font-weight:600">Case Laviolette</strong> &middot; Laviolette LLC &middot; 4201 Sun Spirit Dr, Austin, TX 78735 &middot; EIN 99-1461687</td></tr></table>`
+  // Unified-onboarding CTA block. Rendered only when the invoice has a
+  // bank_link_url (i.e. was synthesized by the unified flow under
+  // ENABLE_UNIFIED_ONBOARDING). Retainer invoices + pre-existing invoices
+  // pass bankLinkUrl=null/undefined → this evaluates to empty string → no
+  // layout change. Stays inside the single <table> to preserve the Gmail-
+  // trim defense.
+  const ctaBlock = d.bankLinkUrl
+    ? `<tr><td colspan="2" style="padding:24px 20px 4px;background:rgba(184,132,90,0.04);border-top:1px solid rgba(18,16,13,0.08)"><div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:2px;color:${BRAND_ACCENT};text-transform:uppercase;margin-bottom:4px">Action required</div><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:22px;font-weight:400;color:${BRAND_INK};line-height:1.2">Link your bank to pay</div></td></tr><tr><td colspan="2" style="padding:10px 20px 16px;background:rgba(184,132,90,0.04);font-size:14px;line-height:1.55;color:${BRAND_INK}">Click the button below to securely link your bank account via Stripe. Once linked, payment will be initiated on <strong>${esc(fmtDate(d.dueDate))}</strong>. Takes about 60 seconds.</td></tr><tr><td colspan="2" style="padding:0 20px 20px;background:rgba(184,132,90,0.04);text-align:center"><a href="${esc(d.bankLinkUrl)}" style="display:inline-block;padding:12px 32px;background:${BRAND_ACCENT};color:#12100D;text-decoration:none;border-radius:4px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase">Link your bank</a></td></tr><tr><td colspan="2" style="padding:0 20px 20px;background:rgba(184,132,90,0.04);font-size:11px;color:rgba(18,16,13,0.55);line-height:1.55;text-align:center">This link is valid for 24 hours. If it expires, reply to this email and we'll send a fresh one.</td></tr>`
+    : ''
+
+  const html = `<table role="presentation" style="width:100%;max-width:580px;margin:0 auto;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:${BRAND_INK};background:#fff;border:1px solid rgba(18,16,13,0.12)"><tr><td style="padding:24px 20px 8px"><div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:2px;color:${BRAND_ACCENT};text-transform:uppercase;margin-bottom:4px">Invoice</div><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;font-weight:400;color:${BRAND_INK};line-height:1.15">${esc(d.invoiceNumber)}</div></td><td style="padding:24px 20px 8px;text-align:right;vertical-align:bottom"><div style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.5);text-transform:uppercase;margin-bottom:2px">Total Due</div><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:24px;color:${BRAND_INK};font-variant-numeric:tabular-nums">${fmtMoney(d.total)}</div></td></tr><tr><td colspan="2" style="padding:8px 20px 0;font-size:14px;line-height:1.55;color:${BRAND_INK}">Hi ${esc(d.clientName)},</td></tr><tr><td colspan="2" style="padding:10px 20px 18px;font-size:14px;line-height:1.55;color:${BRAND_INK}">Thanks for signing. Here's your invoice for the engagement. The full amount will be debited via ACH from the bank account you linked. If you haven't yet linked your bank, please do that now. If you have, you don't need to do anything else.</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04);border-top:1px solid rgba(18,16,13,0.08);width:40%">Invoice number</td><td style="padding:8px 20px;color:${BRAND_INK};font-family:ui-monospace,Menlo,monospace;font-size:12px;background:rgba(184,132,90,0.04);border-top:1px solid rgba(18,16,13,0.08)">${esc(d.invoiceNumber)}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04)">Brand</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04)">${esc(d.brandName)}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04)">Due date</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04)">${esc(fmtDate(d.dueDate))}</td></tr><tr><td style="padding:8px 20px;color:rgba(18,16,13,0.55);font-size:12px;background:rgba(184,132,90,0.04);border-bottom:1px solid rgba(18,16,13,0.08)">Payment method</td><td style="padding:8px 20px;color:${BRAND_INK};font-size:12px;background:rgba(184,132,90,0.04);border-bottom:1px solid rgba(18,16,13,0.08)">${esc(d.paymentMethod)}</td></tr><tr><td style="padding:14px 20px 8px;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.55);text-transform:uppercase">Item</td><td style="padding:14px 20px 8px;text-align:right;font-family:'Barlow Condensed',Arial,sans-serif;font-size:11px;letter-spacing:1.5px;color:rgba(18,16,13,0.55);text-transform:uppercase">Amount</td></tr>${lineItemsTableRows}<tr><td style="padding:14px 20px;font-weight:600;border-top:2px solid ${BRAND_INK};color:${BRAND_INK};font-size:14px">Total Due</td><td style="padding:14px 20px;text-align:right;font-weight:700;font-size:16px;border-top:2px solid ${BRAND_INK};color:${BRAND_INK};font-variant-numeric:tabular-nums">${fmtMoney(d.total)}</td></tr>${ctaBlock}<tr><td colspan="2" style="padding:14px 20px 6px;font-size:12px;color:rgba(18,16,13,0.65);line-height:1.55">A receipt will follow once the ACH clears (typically 3 to 5 business days). Questions? Reply to this email.</td></tr><tr><td colspan="2" style="padding:6px 20px 20px;font-size:11px;color:rgba(18,16,13,0.5);line-height:1.55"><strong style="color:${BRAND_ACCENT};font-weight:600">Case Laviolette</strong> &middot; Laviolette LLC &middot; 4201 Sun Spirit Dr, Austin, TX 78735 &middot; EIN 99-1461687</td></tr></table>`
 
   return { subject, html }
 }
@@ -117,7 +128,7 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  let body: { invoice_id?: string } = {}
+  let body: { invoice_id?: string; force?: boolean } = {}
   try {
     body = await req.json()
   } catch {
@@ -131,6 +142,10 @@ Deno.serve(async (req: Request) => {
       status: 400, headers: { 'Content-Type': 'application/json' },
     })
   }
+  // `force` bypasses the idempotency guard so regenerate-bank-link can re-send
+  // the invoice email with a fresh bank_link_url. sent_date still gets re-stamped
+  // to today at the end of the send, reflecting the latest send attempt.
+  const force = body.force === true
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -147,8 +162,9 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Idempotency: skip if already sent
-  if (inv.sent_date) {
+  // Idempotency: skip if already sent. `force` bypasses this so
+  // regenerate-bank-link can re-send after minting a fresh bank_link_url.
+  if (inv.sent_date && !force) {
     return new Response(JSON.stringify({ ok: true, skipped: 'already_sent', sent_date: inv.sent_date, invoice_number: inv.invoice_number }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     })
@@ -178,6 +194,7 @@ Deno.serve(async (req: Request) => {
     dueDate: inv.due_date,
     lineItems,
     paymentMethod: paymentLabel,
+    bankLinkUrl: inv.bank_link_url,
   })
 
   // Send via Resend
@@ -224,19 +241,20 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Stamp sent_date (atomic — only if still unsent, in case two concurrent calls)
+  // Stamp sent_date. Normal path: atomic (only if still null) to defend
+  // against two concurrent first-sends. Force path: unconditional update so
+  // the column reflects the most-recent send (used by regenerate-bank-link).
   const today = new Date().toISOString().slice(0, 10)
-  const { data: stamped, error: updErr } = await admin
+  const stampQuery = admin
     .from('invoices')
     .update({ sent_date: today, updated_at: new Date().toISOString() })
     .eq('id', inv.id)
-    .is('sent_date', null)
-    .select('id')
+  const { data: stamped, error: updErr } = await (force ? stampQuery.select('id') : stampQuery.is('sent_date', null).select('id'))
 
   if (updErr) {
     console.error(`[send-invoice] stamp sent_date failed for ${inv.invoice_number}: ${updErr.message}`)
     // Email already sent — don't fail the response. Log for manual reconciliation.
-  } else if (!stamped || stamped.length === 0) {
+  } else if (!force && (!stamped || stamped.length === 0)) {
     console.warn(`[send-invoice] sent_date already set on ${inv.invoice_number} when we tried to stamp; concurrent call?`)
   }
 
