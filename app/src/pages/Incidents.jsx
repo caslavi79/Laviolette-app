@@ -21,7 +21,12 @@ function staleBadges(stale) {
   return (
     <span className="incident-badges">
       {arr.map((s, i) => (
-        <span key={i} style={badgeStyle(COLORS.red)} title={`${s.hours_ago}h since last run`}>
+        <span
+          key={i}
+          style={badgeStyle(COLORS.red)}
+          title={`${s.hours_ago}h since last run`}
+          aria-label={`${String(s.jobname || '').replace(/^laviolette_/, '')}: ${s.hours_ago} hours since last run`}
+        >
           {String(s.jobname || '').replace(/^laviolette_/, '')}
         </span>
       ))}
@@ -100,40 +105,45 @@ export default function Incidents() {
           </p>
         </div>
       ) : (
-        <table className="incidents-table">
-          <thead>
-            <tr>
-              <th>Checked at</th>
-              <th>Status</th>
-              <th>Message</th>
-              <th>Stale crons</th>
-              <th>DLQ</th>
-              <th>Response</th>
-              <th>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className={r.healthy ? 'row-healthy' : 'row-unhealthy'}>
-                <td>{fmtWhen(r.checked_at)}</td>
-                <td>
-                  <span style={badgeStyle(r.healthy ? COLORS.green : COLORS.red)}>
-                    {r.http_status}
-                  </span>
-                </td>
-                <td className="incidents-message">
-                  {r.healthy ? 'OK' : (Array.isArray(r.stale_crons) && r.stale_crons.length > 0
-                    ? `${r.stale_crons.length} stale`
-                    : (r.unresolved_dlq_count >= 5 ? `DLQ: ${r.unresolved_dlq_count} unresolved` : 'Unhealthy'))}
-                </td>
-                <td>{staleBadges(r.stale_crons)}</td>
-                <td>{r.unresolved_dlq_count ?? '—'}</td>
-                <td>{fmtMs(r.response_ms)}</td>
-                <td><span className="incidents-source">{r.source || '—'}</span></td>
+        <div className="incidents-table-scroll" style={{ overflowX: 'auto' }}>
+          <table className="incidents-table">
+            <thead>
+              <tr>
+                <th>Checked at</th>
+                <th>Status</th>
+                <th>Message</th>
+                <th>Stale crons</th>
+                <th>DLQ</th>
+                <th>Response</th>
+                <th>Source</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className={r.healthy ? 'row-healthy' : 'row-unhealthy'}>
+                  <td>{fmtWhen(r.checked_at)}</td>
+                  <td>
+                    <span
+                      style={badgeStyle(r.healthy ? COLORS.green : COLORS.red)}
+                      aria-label={`HTTP ${r.http_status} — ${r.healthy ? 'healthy' : 'unhealthy'}`}
+                    >
+                      {r.http_status}
+                    </span>
+                  </td>
+                  <td className="incidents-message">
+                    {r.healthy ? 'OK' : (Array.isArray(r.stale_crons) && r.stale_crons.length > 0
+                      ? `${r.stale_crons.length} stale`
+                      : (r.unresolved_dlq_count >= 5 ? `DLQ: ${r.unresolved_dlq_count} unresolved` : 'Unhealthy'))}
+                  </td>
+                  <td>{staleBadges(r.stale_crons)}</td>
+                  <td>{r.unresolved_dlq_count ?? '—'}</td>
+                  <td>{fmtMs(r.response_ms)}</td>
+                  <td><span className="incidents-source">{r.source || '—'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

@@ -130,12 +130,12 @@ export default function Projects() {
         />
         <div className="toolbar-filters">
           {['all', 'buildout', 'retainer'].map((t) => (
-            <button key={t} className={`filter-pill ${filterType === t ? 'active' : ''}`} onClick={() => setFilterType(t)}>{t}</button>
+            <button key={t} className={`filter-pill ${filterType === t ? 'active' : ''}`} aria-pressed={filterType === t} onClick={() => setFilterType(t)}>{t}</button>
           ))}
         </div>
         <div className="toolbar-filters">
           {['active', 'draft', 'paused', 'complete', 'cancelled', 'all'].map((s) => (
-            <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} onClick={() => setFilterStatus(s)}>{s}</button>
+            <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} aria-pressed={filterStatus === s} onClick={() => setFilterStatus(s)}>{s}</button>
           ))}
         </div>
         <button

@@ -410,6 +410,7 @@ export default function Contacts() {
             <button
               key={f.key}
               className={`filter-pill ${stageFilter === f.key ? 'active' : ''}`}
+              aria-pressed={stageFilter === f.key}
               onClick={() => setStageFilter(f.key)}
             >
               {f.label}
@@ -806,7 +807,7 @@ function BrandCard({ brand, financials, onEdit }) {
       setTimeout(() => setCopied(false), 1800)
     } catch {
       alert('Clipboard unavailable. Briefing logged to console.')
-      console.log(out)
+      if (import.meta.env.DEV) console.log(out)
     }
   }
 

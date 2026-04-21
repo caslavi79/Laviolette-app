@@ -178,7 +178,19 @@ export default function Schedule() {
             {template.map((t) => {
               const day = DAYS.find((d) => d.dow === t.day_of_week)
               return (
-                <li key={t.id} className="template-row" onClick={() => setModal({ kind: 'template', block: t })}>
+                <li
+                  key={t.id}
+                  className="template-row"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setModal({ kind: 'template', block: t })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setModal({ kind: 'template', block: t })
+                    }
+                  }}
+                >
                   <span className="template-dow">{day?.long}</span>
                   <span className="template-block">{BLOCK_LABELS[t.time_block]}</span>
                   <span className="template-brand" style={{ color: t.brands?.color || 'var(--ivory)' }}>
