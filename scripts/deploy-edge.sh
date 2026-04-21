@@ -36,20 +36,27 @@ set -euo pipefail
 PROJECT_REF="sukcufgjptllzucbneuj"
 
 FUNCTIONS=(
-  contract-send
-  contract-sign
-  create-setup-session
-  create-stripe-invoice
-  stripe-webhook
-  send-reminders
-  generate-retainer-invoices
-  generate-daily-rounds
-  check-overdue-invoices
-  advance-contract-status
-  auto-push-invoices
-  generate-monthly-recaps
-  send-monthly-recap
+  "advance-contract-status"
+  "auto-push-invoices"
+  "check-overdue-invoices"
+  "contract-send"
+  "contract-sign"
+  "create-setup-session"
+  "create-stripe-invoice"
+  "fire-day-reminder"
+  "generate-daily-rounds"
+  "generate-monthly-recaps"
+  "generate-retainer-invoices"
+  "health"
+  "retry-notification"
+  "send-invoice"
+  "send-manual-receipt"
+  "send-monthly-recap"
+  "send-reminders"
+  "stripe-webhook"
 )
+# NOTE: run-pipeline-test is intentionally excluded — manual ops tool only.
+# See supabase/functions/run-pipeline-test/index.ts header for usage.
 
 echo "════════════════════════════════════════════"
 echo " Deploying edge functions to Laviolette"
