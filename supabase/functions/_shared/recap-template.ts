@@ -307,6 +307,23 @@ export function renderDraftsReadyHtml(args: {
  * (2026-04-21 Agent 3 finding) raised for Case's threat model (sole
  * author, copy-paste mishaps, compromised external HTML snippets).
  *
+ * THREAT MODEL:
+ *   - Input source: operator-authored monthly recap HTML, editable
+ *     via the Recaps tab (Projects → <project> → Recaps subtab).
+ *   - Authorized authors: the single authenticated user (Case). RLS
+ *     on monthly_recaps is authenticated_all; no anon write path.
+ *   - Assumption: Case is trusted. Sanitizer is defense-in-depth
+ *     against accidental copy-paste of unsafe HTML (e.g. from a
+ *     third-party analytics tool, a competitor's recap deck), NOT
+ *     against an adversarial insider.
+ *   - Out of scope: CSS unicode escapes (e.g. `\2f2a` → `/*`), BOM /
+ *     zero-width character tricks, deeply nested HTML5 polyglots,
+ *     CSS expression() (dead, IE-only anyway).
+ *   - Upgrade path: if recaps ever become externally-authored (a
+ *     contractor interface, a public-form input, etc.) OR Case wants
+ *     stronger guarantees, replace this with a real parser. Current
+ *     implementation is acceptable given the single-trusted-author model.
+ *
  * WHY NOT DOMPURIFY:
  *   DOMPurify requires a DOM and isomorphic-dompurify pulls jsdom.
  *   Neither runs cleanly in Deno edge runtime, and bundle budget is

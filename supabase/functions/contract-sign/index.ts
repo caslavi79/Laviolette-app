@@ -283,7 +283,7 @@ Deno.serve(async (req: Request) => {
     // and persists to notification_failures on Resend error so Case has visibility
     // in the Notifications page (instead of lost Promise.allSettled rejections).
     const sendConfirm = async (params: {
-      from: string; to: string; bcc?: string; replyTo?: string;
+      from: string; to: string; bcc?: string[]; replyTo?: string;
       subject: string; html: string; context: string;
     }) => {
       try {
@@ -293,7 +293,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             from: params.from,
             to: [params.to],
-            ...(params.bcc ? { bcc: [params.bcc] } : {}),
+            ...(params.bcc?.length ? { bcc: params.bcc } : {}),
             reply_to: params.replyTo || undefined,
             subject: params.subject,
             html: params.html,
@@ -320,7 +320,7 @@ Deno.serve(async (req: Request) => {
       confirmPromises.push(sendConfirm({
         from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
         to: contract.signer_email,
-        bcc: CASE_NOTIFY,
+        bcc: [CASE_NOTIFY],
         replyTo: BRAND_REPLY_TO,
         subject: `Signed: ${title}`,
         html: confirmHtml,

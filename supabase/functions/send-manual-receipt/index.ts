@@ -103,7 +103,7 @@ Deno.serve(async (req: Request) => {
     const from = `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`
     const res = await sendClientEmail({
       apiKey: RESEND_API_KEY, from, replyTo: BRAND_REPLY_TO,
-      to: toEmail, bcc: CASE_NOTIFY_EMAIL,
+      to: toEmail, bcc: [CASE_NOTIFY_EMAIL],
       subject, html, context: `send-manual-receipt:${row.invoice_number}`,
     })
     if (!res.ok) {

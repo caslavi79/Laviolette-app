@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
     from,
     replyTo: BRAND_REPLY_TO,
     to: recipient,
-    bcc: CASE_EMAIL,
+    bcc: [CASE_EMAIL],
     subject,
     html,
     context: `send-monthly-recap:${recap.id}`,
@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
       subject,
       to_email: recipient,
       error: res.error,
-      payload: { from, reply_to: BRAND_REPLY_TO, html, bcc: CASE_EMAIL },
+      payload: { from, reply_to: BRAND_REPLY_TO, html, bcc: [CASE_EMAIL] },
     }).then(() => {}).catch((e) => {
       console.error(`[send-monthly-recap] DLQ insert failed: ${(e as Error).message}`)
     })
@@ -155,7 +155,7 @@ Deno.serve(async (req: Request) => {
         resend_id: res.id,
         recap_id: recap.id,
         from,
-        bcc: CASE_EMAIL,
+        bcc: [CASE_EMAIL],
       },
       resolved_at: new Date().toISOString(),
       resolution: 'dismissed',
