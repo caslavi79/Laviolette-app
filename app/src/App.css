@@ -3307,3 +3307,120 @@ body.modal-open { overflow: hidden; }
 }
 .recap-confirm-field strong { font-family: var(--body); font-size: 14px; }
 
+/* =========================================================
+   health_checks — Today widget + /incidents table
+   ========================================================= */
+.system-health {
+  margin-top: 28px;
+  padding: 14px 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+}
+.system-health-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.system-health-main { flex: 1; }
+.system-health-big {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--ivory);
+  margin: 4px 0 2px;
+  line-height: 1;
+}
+.system-health-sub {
+  font-size: 12px;
+  color: var(--text-md);
+}
+.system-health-empty {
+  font-size: 12px;
+  color: var(--text-lo);
+  margin-top: 6px;
+}
+.system-health-alert {
+  background: rgba(194, 90, 78, 0.15);
+  border: 1px solid rgba(194, 90, 78, 0.5);
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.system-health-alert-label {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  color: var(--red, #C25A4E);
+  flex-shrink: 0;
+}
+.system-health-alert-msg {
+  font-size: 13px;
+  color: var(--ivory);
+}
+
+.incidents-page { padding-bottom: 60px; }
+.incidents-stats {
+  font-size: 13px;
+  color: var(--text-md);
+}
+.incidents-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-md);
+  font-family: var(--label);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.incidents-toggle input { margin: 0; }
+.incidents-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: auto;
+}
+.incidents-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-family: var(--label);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  border-bottom: 1px solid var(--border);
+}
+.incidents-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--ivory);
+}
+.incidents-table tr.row-healthy td { color: var(--text-md); }
+.incidents-table tr.row-unhealthy { background: rgba(194, 90, 78, 0.04); }
+.incidents-message {
+  font-size: 13px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.incident-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.incidents-source {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}

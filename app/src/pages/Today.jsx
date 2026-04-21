@@ -7,6 +7,31 @@ import LogWorkModal from '../components/forms/LogWorkModal'
 /* Returns {startUtcIso, endUtcIso} for "today" in America/Chicago — so the
  * Today screen's "Logged today" tally rolls over at midnight CT regardless
  * of where Case's phone thinks it is. */
+function relativeFromNow(iso) {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return null
+  const diff = Date.now() - then
+  if (diff < 0) return 'just now'
+  const mins = Math.round(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? '' : 's'} ago`
+  const days = Math.round(hrs / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+function buildHealthMessage(check) {
+  if (!check) return ''
+  const stale = check.stale_crons || []
+  if (stale.length === 0 && (check.unresolved_dlq_count || 0) === 0) return 'All systems green.'
+  if (stale.length === 1) return `Stale: ${stale[0].jobname}`
+  if (stale.length > 1) return `${stale.length} stale crons`
+  if ((check.unresolved_dlq_count || 0) > 0) return `${check.unresolved_dlq_count} unresolved notification failures`
+  return ''
+}
+
 function ctTodayBoundsUtcIso() {
   const now = new Date()
   const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(now)
@@ -66,6 +91,8 @@ export default function Today() {
   const [todaysWork, setTodaysWork] = useState([])
   const [workOpen, setWorkOpen] = useState(false)
   const [logModalOpen, setLogModalOpen] = useState(false)
+  const [healthStats, setHealthStats] = useState(null)
+  const [lastHealthCheck, setLastHealthCheck] = useState(null)
   const [err, setErr] = useState('')
   const saveTimers = useRef({})
 
@@ -246,6 +273,19 @@ export default function Today() {
         .eq('status', 'draft')
         .order('generated_at', { ascending: true })
       setDraftRecaps(draftRows || [])
+
+      // System health rollup + most recent probe (for the Today widget)
+      const [statsRes, recentRes] = await Promise.all([
+        supabase.from('v_health_stats_7d').select('*').maybeSingle(),
+        supabase
+          .from('health_checks')
+          .select('checked_at, http_status, healthy, stale_crons, unresolved_dlq_count')
+          .order('checked_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+      setHealthStats(statsRes.data || null)
+      setLastHealthCheck(recentRes.data || null)
 
       // Today's work_log entries (CT day boundary so the tally is correct
       // regardless of browser local time).
@@ -553,6 +593,44 @@ export default function Today() {
           onSaved={() => loadAll()}
         />
       )}
+
+      {/* System health — compact tile, low-urgency info. */}
+      <section className="system-health">
+        {(() => {
+          const hasData = !!(healthStats && (healthStats.total_checks || 0) > 0)
+          const unhealthyNow = !!(lastHealthCheck && !lastHealthCheck.healthy)
+          const uptimePct = healthStats?.uptime_pct
+          const lastIncident = healthStats?.last_incident_at
+          return (
+            <>
+              {unhealthyNow && (
+                <div className="system-health-alert">
+                  <span className="system-health-alert-label">UNHEALTHY</span>
+                  <span className="system-health-alert-msg">{buildHealthMessage(lastHealthCheck) || 'Health check failing — open /incidents.'}</span>
+                </div>
+              )}
+              <div className="system-health-row">
+                <div className="system-health-main">
+                  <div className="eyebrow">System health</div>
+                  {!hasData ? (
+                    <div className="system-health-empty">No data yet — external monitor not configured.</div>
+                  ) : (
+                    <>
+                      <div className="system-health-big">{uptimePct != null ? `${uptimePct}%` : '—'}</div>
+                      <div className="system-health-sub">
+                        {lastIncident
+                          ? `Last incident: ${relativeFromNow(lastIncident)}`
+                          : 'No incidents in 7 days'}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <Link to="/incidents" className="btn btn-link-small">View history →</Link>
+              </div>
+            </>
+          )
+        })()}
+      </section>
 
       {/* Alerts */}
       {(alerts.length > 0 || staleLeads.length > 0 || draftRecaps.length > 0) && (
