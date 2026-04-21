@@ -62,6 +62,7 @@ export default function Today() {
   const [deliverables, setDeliverables] = useState([]) // in-progress deliverables for today's brand
   const [alerts, setAlerts] = useState([])
   const [staleLeads, setStaleLeads] = useState([])
+  const [draftRecaps, setDraftRecaps] = useState([])
   const [todaysWork, setTodaysWork] = useState([])
   const [workOpen, setWorkOpen] = useState(false)
   const [logModalOpen, setLogModalOpen] = useState(false)
@@ -237,6 +238,14 @@ export default function Today() {
         .select('contact_id, name, stage, days_since_contact, next_touch_at, reason')
         .order('days_since_contact', { ascending: false, nullsFirst: true })
       setStaleLeads(staleRows || [])
+
+      // Recaps awaiting review
+      const { data: draftRows } = await supabase
+        .from('monthly_recaps')
+        .select('id, project_id, month, summary_json, generated_at, brands(name)')
+        .eq('status', 'draft')
+        .order('generated_at', { ascending: true })
+      setDraftRecaps(draftRows || [])
 
       // Today's work_log entries (CT day boundary so the tally is correct
       // regardless of browser local time).
@@ -546,8 +555,21 @@ export default function Today() {
       )}
 
       {/* Alerts */}
-      {(alerts.length > 0 || staleLeads.length > 0) && (
+      {(alerts.length > 0 || staleLeads.length > 0 || draftRecaps.length > 0) && (
         <section className="alerts-bar">
+          {draftRecaps.map((r) => {
+            const monthLabel = r.summary_json?.month_label || String(r.month).slice(0, 7)
+            const zeroActivity = r.summary_json?.zero_activity
+            const href = `/projects?selected=${r.project_id}&tab=recaps&highlight=${r.id}`
+            return (
+              <Link key={`recap-${r.id}`} to={href} className="alert-row">
+                <span className="alert-dot" style={{ background: COLORS.copper }} />
+                <span className="alert-label" style={{ color: COLORS.copper }}>RECAP DRAFT</span>
+                <span className="alert-text">{r.brands?.name || 'Brand'} · {monthLabel}</span>
+                <span className="alert-sub">{zeroActivity ? 'zero activity · review before sending' : 'review & send'}</span>
+              </Link>
+            )
+          })}
           {staleLeads.map((s) => {
             const isOverdue = s.reason === 'overdue_touch'
             const sub = isOverdue

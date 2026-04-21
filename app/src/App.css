@@ -3143,3 +3143,167 @@ body.modal-open { overflow: hidden; }
   text-transform: uppercase;
   color: var(--text-lo);
 }
+/* =========================================================
+   monthly_recaps — tab + preview + status tones
+   ========================================================= */
+.recaps-tab { margin-top: 12px; }
+.recaps-tab-hint {
+  font-size: 12px;
+  color: var(--text-lo);
+  margin-top: 4px;
+}
+.recap-group { margin-top: 20px; }
+.recap-group:first-child { margin-top: 8px; }
+.recap-group-header {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ivory);
+  margin: 0 0 8px;
+}
+.recap-group.tone-draft .recap-row { border-left: 3px solid var(--amber, #C9922E); }
+.recap-group.tone-approved .recap-row { border-left: 3px solid var(--copper); }
+.recap-group.tone-sent .recap-row { opacity: 0.75; }
+.recap-group.tone-skipped .recap-row { opacity: 0.55; }
+
+.recap-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.recap-row {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  overflow: hidden;
+}
+.recap-row.open { border-color: var(--copper-dim); }
+.recap-row--flash {
+  animation: recap-flash 3s ease-out;
+}
+@keyframes recap-flash {
+  0%   { background: rgba(184, 132, 90, 0.25); box-shadow: 0 0 0 2px var(--copper); }
+  50%  { background: rgba(184, 132, 90, 0.12); box-shadow: 0 0 0 2px var(--copper-dim); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+}
+.recap-row-head {
+  display: flex;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  gap: 12px;
+}
+.recap-row-head:hover { background: var(--surface-2); }
+.recap-row-main { flex: 1; min-width: 0; }
+.recap-row-title {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ivory);
+}
+.recap-row-sub {
+  font-size: 12px;
+  color: var(--text-md);
+  margin-top: 2px;
+}
+.recap-row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.recap-row-generated {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+.recap-zero-flag { color: var(--amber, #C9922E); font-weight: 600; }
+
+.recap-preview {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-0, #0e0d0b);
+}
+.recap-preview-field {
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recap-preview-readonly {
+  color: var(--ivory);
+  font-size: 14px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.recap-preview-subject {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--ivory);
+  font-size: 14px;
+}
+.recap-preview-iframe-wrap {
+  background: #fafaf7;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  height: 420px;
+  margin: 10px 0;
+}
+.recap-preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.recap-preview-body, .recap-preview-notes {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--ivory);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+.recap-preview-notes { font-family: var(--body); font-size: 13px; }
+.recap-preview-body-edit { margin: 10px 0; }
+.recap-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.recap-sent-line {
+  font-size: 13px;
+  color: var(--green, #6E8F5A);
+  font-family: var(--label);
+  letter-spacing: 0.04em;
+}
+.recap-confirm-field {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recap-confirm-field strong { font-family: var(--body); font-size: 14px; }
+

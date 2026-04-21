@@ -108,6 +108,16 @@ BEGIN
     '1 6 1 * *',
     format($cron$SELECT net.http_post(url := '%s/generate-retainer-invoices%s', headers := '{"Content-Type":"application/json"}'::jsonb)$cron$, v_base, v_key)
   );
+
+  -- 1st of each month at 13:00 UTC (= 08:00 CST / 07:00 CDT) —
+  -- generate draft client-facing monthly recaps. Minor DST drift is
+  -- acceptable: this is a "sometime before Case's morning coffee"
+  -- job, not time-critical like auto-push or fire-day-reminder.
+  PERFORM cron.schedule(
+    'laviolette_generate_monthly_recaps',
+    '0 13 1 * *',
+    format($cron$SELECT net.http_post(url := '%s/generate-monthly-recaps%s', headers := '{"Content-Type":"application/json"}'::jsonb)$cron$, v_base, v_key)
+  );
 END $$;
 
 -- Verify

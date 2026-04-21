@@ -343,6 +343,13 @@ function ProjectDetail({
           >
             Activity
           </button>
+          <button
+            type="button"
+            className={`tab ${tab === 'recaps' ? 'active' : ''}`}
+            onClick={() => setActiveTab('recaps')}
+          >
+            Recaps
+          </button>
         </div>
       )}
 
@@ -352,6 +359,10 @@ function ProjectDetail({
           onLogWork={() => onLogWork({ brandId: project.brands?.id })}
           refreshKey={activityRefreshKey}
         />
+      )}
+
+      {tab === 'recaps' && isRetainer && (
+        <RecapsTab project={project} />
       )}
 
       {tab === 'overview' && project.notes && <div className="detail-note">{project.notes}</div>}
@@ -526,6 +537,437 @@ function RetainerTaskSummary({ tasks }) {
   )
 }
 
+function RecapsTab({ project }) {
+  const [recaps, setRecaps] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [err, setErr] = useState('')
+  const [params] = useSearchParams()
+  const highlightId = params.get('highlight')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr('')
+    const { data, error } = await supabase
+      .from('monthly_recaps')
+      .select('id, project_id, brand_id, month, status, subject, html_body, summary_json, notes_internal, generated_at, approved_at, sent_at, sent_to_email')
+      .eq('project_id', project.id)
+      .order('month', { ascending: false })
+    if (error) { setErr(error.message); setLoading(false); return }
+    setRecaps(data || [])
+    setLoading(false)
+  }, [project.id])
+
+  useEffect(() => { load() }, [load, refreshKey])
+
+  // Deep-link: /projects?selected=<p>&tab=recaps&highlight=<recap_id>
+  useEffect(() => {
+    if (!highlightId || loading) return
+    const match = recaps.find((r) => r.id === highlightId)
+    if (!match) return
+    setExpandedId(match.id)
+    const el = document.querySelector(`[data-recap-id="${highlightId}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('recap-row--flash')
+    const t = setTimeout(() => el.classList.remove('recap-row--flash'), 3000)
+    return () => clearTimeout(t)
+  }, [highlightId, loading, recaps])
+
+  const grouped = useMemo(() => {
+    return {
+      drafts: recaps.filter((r) => r.status === 'draft'),
+      approved: recaps.filter((r) => r.status === 'approved'),
+      sent: recaps.filter((r) => r.status === 'sent'),
+      skipped: recaps.filter((r) => r.status === 'skipped'),
+    }
+  }, [recaps])
+
+  const renderGroup = (label, items, toneClass) => {
+    if (items.length === 0) return null
+    return (
+      <div className={`recap-group ${toneClass || ''}`}>
+        <h3 className="recap-group-header">{label} · {items.length}</h3>
+        <ul className="recap-list">
+          {items.map((r) => (
+            <RecapRow
+              key={r.id}
+              recap={r}
+              expanded={expandedId === r.id}
+              onToggle={() => setExpandedId(expandedId === r.id ? null : r.id)}
+              onChanged={() => setRefreshKey((k) => k + 1)}
+            />
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  return (
+    <section className="recaps-tab">
+      <div className="detail-section-header">
+        <div>
+          <span className="eyebrow">Monthly recaps</span>
+          <div className="recaps-tab-hint">Generated on the 1st. Review, edit if needed, send.</div>
+        </div>
+      </div>
+
+      {err && <div className="form-error">{err}</div>}
+
+      {loading ? (
+        <div className="loading" style={{ minHeight: 120 }}>Loading…</div>
+      ) : recaps.length === 0 ? (
+        <div className="empty-state" style={{ padding: 16 }}>
+          <p>No recaps yet. The first one generates on the 1st of next month.</p>
+        </div>
+      ) : (
+        <>
+          {renderGroup('Awaiting review', grouped.drafts, 'tone-draft')}
+          {renderGroup('Approved, not yet sent', grouped.approved, 'tone-approved')}
+          {renderGroup('Sent', grouped.sent, 'tone-sent')}
+          {renderGroup('Skipped', grouped.skipped, 'tone-skipped')}
+        </>
+      )}
+    </section>
+  )
+}
+
+const RECAP_STATUS_META = {
+  draft:    { label: 'draft',    color: '#C9922E' },
+  approved: { label: 'approved', color: '#B8845A' },
+  sent:     { label: 'sent',     color: '#6E8F5A' },
+  skipped:  { label: 'skipped',  color: '#7A8490' },
+}
+
+function RecapRow({ recap, expanded, onToggle, onChanged }) {
+  const statusMeta = RECAP_STATUS_META[recap.status] || { label: recap.status, color: COLORS.steel }
+  const summary = recap.summary_json || {}
+  const monthLabel = summary.month_label || String(recap.month).slice(0, 7)
+  const entryCount = summary.total_entries || 0
+  const totalCount = summary.total_count || 0
+  const serviceCount = (summary.services || []).length
+  const countLine = summary.zero_activity
+    ? 'Zero activity logged'
+    : `${totalCount} item${totalCount === 1 ? '' : 's'} across ${serviceCount} service${serviceCount === 1 ? '' : 's'}${entryCount !== totalCount ? ` (${entryCount} entries)` : ''}`
+  const generatedOn = recap.generated_at
+    ? new Date(recap.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+
+  return (
+    <li className={`recap-row ${expanded ? 'open' : ''}`} data-recap-id={recap.id}>
+      <button type="button" className="recap-row-head" onClick={onToggle} aria-expanded={expanded}>
+        <div className="recap-row-main">
+          <div className="recap-row-title">{monthLabel}</div>
+          <div className="recap-row-sub">
+            {countLine}
+            {summary.zero_activity && <span className="recap-zero-flag"> · ⚠ zero activity</span>}
+          </div>
+        </div>
+        <div className="recap-row-meta">
+          <span style={badgeStyle(statusMeta.color)}>{statusMeta.label}</span>
+          {generatedOn && <span className="recap-row-generated">gen {generatedOn}</span>}
+        </div>
+      </button>
+      {expanded && <RecapPreview recap={recap} onChanged={onChanged} />}
+    </li>
+  )
+}
+
+function RecapPreview({ recap, onChanged }) {
+  const [subject, setSubject] = useState(recap.subject)
+  const [body, setBody] = useState(recap.html_body)
+  const [notes, setNotes] = useState(recap.notes_internal || '')
+  const [editBodyOpen, setEditBodyOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [err, setErr] = useState('')
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
+  const isSent = recap.status === 'sent'
+  const isSkipped = recap.status === 'skipped'
+  const isDraft = recap.status === 'draft'
+
+  const saveEdits = async () => {
+    setSaving(true); setErr('')
+    const patch = { subject, html_body: body, notes_internal: notes.trim() || null }
+    const { error } = await supabase.from('monthly_recaps').update(patch).eq('id', recap.id)
+    setSaving(false)
+    if (error) { setErr(error.message); return }
+    onChanged?.()
+  }
+
+  const saveNotes = async () => {
+    const { error } = await supabase.from('monthly_recaps').update({ notes_internal: notes.trim() || null }).eq('id', recap.id)
+    if (error) setErr(error.message)
+  }
+
+  const skip = async () => {
+    if (!window.confirm('Skip this recap? You can regenerate later if needed.')) return
+    const { error } = await supabase
+      .from('monthly_recaps')
+      .update({ status: 'skipped' })
+      .eq('id', recap.id)
+    if (error) { setErr(error.message); return }
+    onChanged?.()
+  }
+
+  const regenerate = async () => {
+    if (!window.confirm('Regenerate from the latest work log? Your subject/body edits will be overwritten. Internal notes will be kept.')) return
+    setRegenerating(true); setErr('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated.')
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-monthly-recaps?overwrite_id=${encodeURIComponent(recap.id)}`
+      const resp = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+      if (!resp.ok) {
+        const text = await resp.text()
+        throw new Error(text || `HTTP ${resp.status}`)
+      }
+      onChanged?.()
+    } catch (e) {
+      setErr(`Regenerate failed: ${e.message}`)
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  return (
+    <div className="recap-preview">
+      <div className="recap-preview-field">
+        <label className="eyebrow">Subject</label>
+        {isSent || isSkipped ? (
+          <div className="recap-preview-readonly">{subject}</div>
+        ) : (
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="recap-preview-subject"
+          />
+        )}
+      </div>
+
+      <div className="recap-preview-iframe-wrap">
+        <iframe
+          title="recap preview"
+          sandbox=""
+          srcDoc={body}
+          className="recap-preview-iframe"
+        />
+      </div>
+
+      {!isSent && !isSkipped && (
+        <div className="recap-preview-body-edit">
+          {!editBodyOpen ? (
+            <button type="button" className="btn btn-link" onClick={() => setEditBodyOpen(true)}>
+              Edit HTML body
+            </button>
+          ) : (
+            <>
+              <label className="eyebrow">Body (HTML — edits save as-is; script tags stripped on send)</label>
+              <textarea
+                rows={10}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                className="recap-preview-body"
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="recap-preview-field">
+        <label className="eyebrow">Internal notes (never sent)</label>
+        <textarea
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={saveNotes}
+          className="recap-preview-notes"
+          placeholder="Private notes to yourself about this recap…"
+        />
+      </div>
+
+      {err && <div className="form-error" style={{ marginTop: 8 }}>{err}</div>}
+
+      <div className="recap-preview-actions">
+        {isSent ? (
+          <div className="recap-sent-line">
+            ✓ Sent {recap.sent_at ? new Date(recap.sent_at).toLocaleString() : ''} to {recap.sent_to_email}
+          </div>
+        ) : isSkipped ? (
+          <div className="recap-sent-line" style={{ color: 'var(--text-lo)' }}>Skipped for this month.</div>
+        ) : (
+          <>
+            {isDraft && (
+              <button type="button" className="btn btn-link" onClick={regenerate} disabled={regenerating}>
+                {regenerating ? 'Regenerating…' : 'Regenerate from log'}
+              </button>
+            )}
+            <button type="button" className="btn btn-link" onClick={skip} disabled={saving}>Skip this month</button>
+            <div style={{ flex: 1 }} />
+            <button type="button" className="btn btn-secondary" onClick={saveEdits} disabled={saving}>
+              {saving ? 'Saving…' : 'Save edits'}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setSendConfirmOpen(true)} disabled={saving}>
+              Approve &amp; send
+            </button>
+          </>
+        )}
+      </div>
+
+      {sendConfirmOpen && (
+        <RecapSendConfirmModal
+          recap={{ ...recap, subject, html_body: body }}
+          onClose={() => setSendConfirmOpen(false)}
+          onSent={() => { setSendConfirmOpen(false); onChanged?.() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function RecapSendConfirmModal({ recap, onClose, onSent }) {
+  const [sending, setSending] = useState(false)
+  const [err, setErr] = useState('')
+  const [recipient, setRecipient] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [overrideEmail, setOverrideEmail] = useState('')
+  const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      // Resolve recipient client-side so the confirm modal shows it.
+      const { data } = await supabase
+        .from('brands')
+        .select('clients ( contacts ( email, name ) )')
+        .eq('id', recap.brand_id)
+        .maybeSingle()
+      if (cancelled) return
+      setRecipient(data?.clients?.contacts?.email || '')
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [recap.brand_id])
+
+  const trimmedOverride = overrideEmail.trim()
+  const isOverride = trimmedOverride.length > 0
+  const overrideValid = isOverride ? /^\S+@\S+\.\S+$/.test(trimmedOverride) : true
+
+  const send = async () => {
+    setErr(''); setToast('')
+    if (isOverride && !overrideValid) {
+      setErr('Override must be a valid email address.')
+      return
+    }
+    setSending(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated.')
+      const body = { recap_id: recap.id }
+      if (isOverride) body.override_email = trimmedOverride
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-monthly-recap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+      const payload = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`)
+      if (payload.was_override) {
+        // Test send — modal stays open, recap status unchanged.
+        setToast(`✓ Test sent to ${payload.recipient}. Recap status unchanged.`)
+      } else {
+        // Real send — close + refresh parent so the row flips to "sent".
+        onSent?.()
+      }
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const preview = String(recap.html_body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+  const zeroActivity = recap.summary_json?.zero_activity
+  // Only hard-disable for states that can never send (mid-request, loading,
+  // or no recipient and no override typed). Invalid override still lets the
+  // click through so send() can surface an inline error — spec calls for
+  // "inline error, modal stays open, no send".
+  const sendButtonDisabled = sending || loading || (!isOverride && !recipient)
+  const sendButtonLabel = sending
+    ? 'Sending…'
+    : isOverride ? 'Send test' : 'Send to client'
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal--medium" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">Send recap?</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="recap-confirm-field">
+            <span className="eyebrow">To (resolved client)</span>
+            <strong>{loading ? '…' : (recipient || '— NO EMAIL ON FILE —')}</strong>
+          </div>
+          <div className="recap-confirm-field">
+            <span className="eyebrow">Override recipient (for testing)</span>
+            <input
+              type="email"
+              value={overrideEmail}
+              onChange={(e) => setOverrideEmail(e.target.value)}
+              placeholder="Leave blank to send to client's email"
+              className="recap-preview-subject"
+              autoComplete="off"
+              disabled={sending}
+            />
+            <div style={{ fontSize: 12, color: 'var(--text-lo)', marginTop: 4 }}>
+              Use this to send the recap to yourself or a burner address before sending to the client. Override sends don't flip the recap status.
+            </div>
+          </div>
+          <div className="recap-confirm-field">
+            <span className="eyebrow">Subject</span>
+            <strong>{recap.subject}</strong>
+          </div>
+          <div className="recap-confirm-field">
+            <span className="eyebrow">Preview</span>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-md)' }}>{preview}…</p>
+          </div>
+          {zeroActivity && !isOverride && (
+            <div style={{ padding: 10, background: 'rgba(201,146,46,0.15)', border: '1px solid rgba(201,146,46,0.4)', borderRadius: 4, fontSize: 13, color: 'var(--ivory)', marginTop: 8 }}>
+              ⚠ This recap reflects <strong>zero activity</strong> for this month. Confirm the client should still receive it.
+            </div>
+          )}
+          {toast && (
+            <div style={{ padding: 10, background: 'rgba(110,143,90,0.15)', border: '1px solid rgba(110,143,90,0.4)', borderRadius: 4, fontSize: 13, color: 'var(--ivory)', marginTop: 8 }}>
+              {toast}
+            </div>
+          )}
+          {err && <div className="form-error" style={{ marginTop: 8 }}>{err}</div>}
+          <div className="form-actions" style={{ marginTop: 16 }}>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={sending}>Close</button>
+            <div style={{ flex: 1 }} />
+            <button
+              type="button"
+              className={`btn ${isOverride ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={send}
+              disabled={sendButtonDisabled}
+              title={!isOverride && !recipient ? 'No email on file for this client’s contact' : ''}
+            >
+              {sendButtonLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function fmtMonthName(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number)

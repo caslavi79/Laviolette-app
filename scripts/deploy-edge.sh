@@ -47,6 +47,8 @@ FUNCTIONS=(
   check-overdue-invoices
   advance-contract-status
   auto-push-invoices
+  generate-monthly-recaps
+  send-monthly-recap
 )
 
 echo "════════════════════════════════════════════"
