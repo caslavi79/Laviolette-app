@@ -157,31 +157,37 @@ inside the file for examples.
 
 ## deploy-edge.sh
 
-Deploys all **15** Supabase Edge Functions with `--no-verify-jwt` (required —
-several are public like `contract-sign`, `health`, or invoked by cron with
-their own `?key=` auth). See [OPS.md](../OPS.md) for prerequisites (Supabase
-CLI auth, secrets, pg_cron/pg_net extensions).
+Deploys all **18 production** Supabase Edge Functions with `--no-verify-jwt`
+(required — several are public like `contract-sign`, `health`, or invoked by
+cron with their own `?key=` auth). `run-pipeline-test` is intentionally
+excluded — it's a manual ops tool and should not auto-redeploy on every run.
+See [OPS.md](../OPS.md) for prerequisites (Supabase CLI auth, secrets,
+pg_cron/pg_net extensions).
 
 ```bash
 bash scripts/deploy-edge.sh
 ```
 
-Currently deploys:
-- `stripe-webhook` — 14-event handler with idempotency + HQ alerts
-- `auto-push-invoices` — daily 4:05 PM CT ACH firing with atomic claim
-- `create-stripe-invoice` — "Charge via ACH" button handler (now also sends invoice-charging email)
-- `create-setup-session` — Stripe Checkout bank-link URL generator
+Currently deploys (alphabetical, matches the FUNCTIONS array in
+deploy-edge.sh exactly):
+- `advance-contract-status` — Daily cron, `signed` → `active` on effective_date
+- `auto-push-invoices` — Daily 4:05 PM CT + 5:05 PM retry. Atomic-claim ACH firing.
+- `check-overdue-invoices` — Daily cron, `pending`/`sent` → `overdue` past due_date
 - `contract-send` — Email contract signing link
-- `contract-sign` — Public signing endpoint (GET + POST), 30-day TTL, embeds client sig into filled_html
-- `generate-retainer-invoices` — Monthly cron, targets next-month retainers
-- `generate-daily-rounds` — Daily cron, creates today's daily_rounds rows (America/Chicago)
-- `check-overdue-invoices` — Daily cron, pending/sent → overdue past due_date
-- `advance-contract-status` — Daily cron, signed → active on effective_date
-- `send-reminders` — Daily morning digest email to Case
-- `fire-day-reminder` — Mon-Fri 9 AM CT. Emails Case with "Fire now" deep-links for today's eligible invoices + flags blocked (no bank) ones. Operator-in-the-loop peace of mind; auto-push at 4:05 PM still runs as safety net.
+- `contract-sign` — Public signing endpoint (GET + POST), 30-day TTL, embeds client sig into filled_html, auto-fires `send-invoice` on sign
+- `create-setup-session` — Stripe Checkout bank-link URL generator
+- `create-stripe-invoice` — "Charge via ACH" button handler (fires PI silently post-2e886c1; client already received the invoice at sign-time)
+- `fire-day-reminder` — Mon-Fri 9 AM CT, heads-up to Case with "Fire now" deep-links
+- `generate-daily-rounds` — Daily cron (America/Chicago), creates today's daily_rounds rows
+- `generate-monthly-recaps` — Monthly cron on the 1st, builds retainer-client recap drafts
+- `generate-retainer-invoices` — Monthly cron on the 1st, next-month retainer invoices
+- `health` — Public GET, cron staleness + DLQ count + pending invoices + deploy_sha + response_ms
 - `retry-notification` — Replay a failed Resend email from the DLQ
+- `send-invoice` — Invoice document email fired by contract-sign (or manually by invoice_id), stamps `invoices.sent_date`
 - `send-manual-receipt` — Parity for MarkPaidModal (wire/check payments)
-- `health` — Public GET, cron staleness + DLQ count + pending invoices
+- `send-monthly-recap` — Sends a draft/approved monthly recap to the client
+- `send-reminders` — Daily morning digest email to Case
+- `stripe-webhook` — 14-event handler with idempotency + HQ alerts
 
 Individual redeploy:
 ```bash
