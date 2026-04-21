@@ -84,13 +84,13 @@ Laviolette-app/
 │   ├── generate-contract.mjs   # Contract HTML generator (CLI)
 │   ├── import-signed-contracts.mjs  # Import DocuSeal-signed PDFs
 │   ├── test-webhook-handler.mjs     # Synthetic webhook payload tester
-│   ├── deploy-edge.sh          # Deploy all 18 production edge functions in one pass
+│   ├── deploy-edge.sh          # Deploy all 19 production edge functions in one pass
 │   └── README.md               # Per-script docs
 ├── supabase/
 │   ├── migrations/             # 26 versioned SQL files (enums → tables → triggers →
 │   │                           #   RLS → storage → contracts-signing → stripe idempotency
 │   │                           #   → payment indexes → notification_failures → cron observability)
-│   ├── functions/              # 19 Deno edge functions (18 production + run-pipeline-test manual ops tool)
+│   ├── functions/              # 20 Deno edge functions (19 production + run-pipeline-test manual ops tool)
 │   │   ├── _shared/            # client-emails.ts, business-days.ts
 │   │   ├── stripe-webhook/     # 14 Stripe events + idempotency + HQ alerts
 │   │   ├── auto-push-invoices/ # Daily 4:05 PM CT ACH firing + atomic claim
@@ -151,7 +151,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (~16 secrets).
 | 3.5 Money | ✅ | Invoices + Revenue + Expenses, "Charge via ACH" button, string-slice YTD year math |
 | 3.6 Contracts | ✅ | Editor + signing flow with typed cursive + auto-countersign + download PDF |
 | 3.7 Notifications | ✅ | Dead-letter queue UI, Retry / Dismiss, auto-polled badge in sidebar |
-| 4. Edge functions | ✅ | **19** deployed (18 production + `run-pipeline-test` manual ops tool). See OPS.md for per-function purpose. |
+| 4. Edge functions | ✅ | **20** deployed (19 production + `run-pipeline-test` manual ops tool). See OPS.md for per-function purpose. |
 | 4.5. Stripe webhook | ✅ | **14 events** subscribed, idempotency table, HQ alerts via `notifyCase`, handlers for paid/failed/canceled/processing/dispute/refund/mandate/pm_detached |
 | 4.6. Cron schedule | ✅ | **9 jobs** active, DST-corrected `1 6 UTC` past midnight CT in both seasons, fire-day-reminder at 9 AM CT weekdays |
 | 4.11. Fire-day reminder | ✅ | 9 AM CT weekdays. Emails Case eligible + blocked invoices with "Fire now" deep-links. Manual-first + auto-push safety net pattern. |
