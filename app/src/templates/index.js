@@ -54,6 +54,11 @@ export function buildVariables(project, { brand, client, contact, services, deli
     // Party info
     provider_name: 'Case Laviolette',
     provider_email: 'case.laviolette@gmail.com',
+    // Provider signs electronically at contract-generation time (countersigned-
+    // in-advance pattern). Client sees a pre-signed contract with their side
+    // blank; their sign completes execution. Per ESIGN/UETA, intent to be bound
+    // is demonstrated by generation + send, date-stamped here.
+    provider_signed_date: fmtDateLong(new Date().toISOString().slice(0, 10)),
     client_name: contact?.name || client?.legal_name || client?.name || '',
     client_title: `Owner of ${brand?.name || ''}`,
     client_email: client?.billing_email || contact?.email || '',

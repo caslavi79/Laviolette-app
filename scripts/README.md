@@ -92,10 +92,98 @@ Read-only sanity check that the schema is in good shape. Reports:
 npm run db:verify
 ```
 
+## generate-contract.mjs
+
+Generates a contract HTML from a project ID + related DB rows, inserts as
+`status='draft'` in the `contracts` table. Auto-fills every variable the
+templates need (party info, rates, dates, services/deliverables table,
+provider's countersignature). Used directly by Case or invoked from
+conversations with Claude Code.
+
+```bash
+# Basic: generate a contract for a project
+npm run generate-contract -- <project-id>
+
+# Override a section toggle (all toggles are whitelisted — unknown keys reject)
+npm run generate-contract -- <project-id> --toggle remote_systems=false
+
+# Override a whitelisted field (governing_state, governing_county, effective_date,
+# intro_term_months, intro_term_end, payment_method, timeline)
+npm run generate-contract -- <project-id> --set governing_state=Colorado --set governing_county="El Paso County"
+
+# Dry run — prints what would be inserted without touching DB
+npm run generate-contract -- <project-id> --dry-run
+```
+
+Non-negotiable legal clauses (§1 Binding, §4.1 Pre-Effective Termination,
+§4.2/3 Termination Fees, §6.3 Liability Cap, §6.4 Indemnification, buildout §6.5
+Buildout Fee Earned on Execution) are hardcoded — not toggleable. The provider
+side auto-countersigns at generation time with "Case Laviolette" rendered in
+Great Vibes cursive + today's date + ESIGN/UETA electronic-signature notation.
+
+See [../../contract-playbook.md](../../contract-playbook.md) for the full
+generation playbook.
+
+## import-signed-contracts.mjs
+
+One-time utility for importing externally-signed PDFs (e.g., DocuSeal output).
+Scans `/Users/caselaviolette/Desktop/Laviolette/signed-contracts/`, uploads each
+PDF to the `contracts` Supabase Storage bucket under `{client_id}/signed/`, and
+creates a matching row in the `contracts` table with `status='signed'`.
+Idempotent — skips files already imported.
+
+```bash
+npm run import-signed-contracts
+```
+
+Used once at project bootstrap for Dustin's 4 DocuSeal-signed contracts. Future
+contracts use the native `contract-send` → `contract-sign` flow, which stores
+the signature image inline in `filled_html` rather than uploading a PDF.
+
+## test-webhook-handler.mjs
+
+Synthesizes a Stripe-signed webhook payload and POSTs it at the local or
+deployed `stripe-webhook` endpoint. Useful for testing handler logic without
+triggering real Stripe events. Uses the `STRIPE_WEBHOOK_SECRET` from `.env.local`
+to compute a valid signature.
+
+```bash
+# Test against deployed endpoint
+node scripts/test-webhook-handler.mjs
+```
+
+Edit the script to change the event type + payload being sent. See comments
+inside the file for examples.
+
 ## deploy-edge.sh
 
-Deploys all 10 Supabase Edge Functions with `--no-verify-jwt` (required — several are public or invoked by cron). See [OPS.md](../OPS.md) for prerequisites (Supabase CLI auth, secrets, pg_cron/pg_net extensions).
+Deploys all **15** Supabase Edge Functions with `--no-verify-jwt` (required —
+several are public like `contract-sign`, `health`, or invoked by cron with
+their own `?key=` auth). See [OPS.md](../OPS.md) for prerequisites (Supabase
+CLI auth, secrets, pg_cron/pg_net extensions).
 
 ```bash
 bash scripts/deploy-edge.sh
+```
+
+Currently deploys:
+- `stripe-webhook` — 14-event handler with idempotency + HQ alerts
+- `auto-push-invoices` — daily 4:05 PM CT ACH firing with atomic claim
+- `create-stripe-invoice` — "Charge via ACH" button handler (now also sends invoice-charging email)
+- `create-setup-session` — Stripe Checkout bank-link URL generator
+- `contract-send` — Email contract signing link
+- `contract-sign` — Public signing endpoint (GET + POST), 30-day TTL, embeds client sig into filled_html
+- `generate-retainer-invoices` — Monthly cron, targets next-month retainers
+- `generate-daily-rounds` — Daily cron, creates today's daily_rounds rows (America/Chicago)
+- `check-overdue-invoices` — Daily cron, pending/sent → overdue past due_date
+- `advance-contract-status` — Daily cron, signed → active on effective_date
+- `send-reminders` — Daily morning digest email to Case
+- `fire-day-reminder` — Mon-Fri 9 AM CT. Emails Case with "Fire now" deep-links for today's eligible invoices + flags blocked (no bank) ones. Operator-in-the-loop peace of mind; auto-push at 4:05 PM still runs as safety net.
+- `retry-notification` — Replay a failed Resend email from the DLQ
+- `send-manual-receipt` — Parity for MarkPaidModal (wire/check payments)
+- `health` — Public GET, cron staleness + DLQ count + pending invoices
+
+Individual redeploy:
+```bash
+npx supabase@latest functions deploy <function-name> --no-verify-jwt
 ```

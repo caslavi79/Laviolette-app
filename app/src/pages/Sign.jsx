@@ -6,8 +6,8 @@ const SIGN_ENDPOINT = `${SUPABASE_URL}/functions/v1/contract-sign`
 
 /* Public contract-signing page. No auth required.
  * Fetches the contract JSON from the contract-sign edge function,
- * renders the filled content, collects signature via canvas, and
- * POSTs back to the same endpoint. */
+ * renders the filled content inside a sandboxed iframe, captures
+ * signature via either typed cursive OR canvas draw, and POSTs back. */
 export default function Sign() {
   const [params] = useSearchParams()
   const token = params.get('token')
@@ -15,7 +15,9 @@ export default function Sign() {
   const [contract, setContract] = useState(null)
   const [err, setErr] = useState('')
   const [signerName, setSignerName] = useState('')
+  const [mode, setMode] = useState('type') // 'type' | 'draw'
   const canvasRef = useRef(null)
+  const hiddenCanvasRef = useRef(null)
   const drawing = useRef(false)
   const hasInk = useRef(false)
 
@@ -79,14 +81,50 @@ export default function Sign() {
     hasInk.current = false
   }
 
+  /* Render the typed name into the hidden canvas using Great Vibes cursive,
+   * then return a base64 PNG data URL — same format we'd get from the
+   * drawn-signature canvas. Downstream code doesn't need to know which mode. */
+  const generateTypedSignature = async () => {
+    const c = hiddenCanvasRef.current
+    if (!c) throw new Error('Signature renderer unavailable')
+    const ctx = c.getContext('2d')
+    ctx.clearRect(0, 0, c.width, c.height)
+    // Ensure Great Vibes is loaded before rendering (browser may not have fetched yet)
+    try { await document.fonts.load('72px "Great Vibes"') } catch { /* non-fatal */ }
+    ctx.fillStyle = '#12100D'
+    ctx.textBaseline = 'middle'
+    ctx.font = '72px "Great Vibes", cursive'
+    // Fit text to canvas width with ~20px padding on each side
+    const maxWidth = c.width - 40
+    let fontSize = 72
+    while (ctx.measureText(signerName).width > maxWidth && fontSize > 24) {
+      fontSize -= 4
+      ctx.font = `${fontSize}px "Great Vibes", cursive`
+    }
+    const x = 20
+    const y = c.height / 2
+    ctx.fillText(signerName, x, y)
+    return c.toDataURL('image/png')
+  }
+
   const submit = async (e) => {
     e.preventDefault()
     setErr('')
     if (!signerName.trim()) { setErr('Type your full name.'); return }
-    if (!hasInk.current) { setErr('Sign in the box above.'); return }
+    let signature_data
+    try {
+      if (mode === 'type') {
+        signature_data = await generateTypedSignature()
+      } else {
+        if (!hasInk.current) { setErr('Sign in the box above.'); return }
+        signature_data = canvasRef.current.toDataURL('image/png')
+      }
+    } catch (renderErr) {
+      setErr(renderErr.message || 'Failed to render signature')
+      return
+    }
     setState('submitting')
     try {
-      const signature_data = canvasRef.current.toDataURL('image/png')
       const resp = await fetch(SIGN_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,19 +161,46 @@ export default function Sign() {
 
   if (state === 'signed' || state === 'already_signed') {
     return (
-      <div className="stripe-redirect">
-        <div className="stripe-redirect-wrap">
-          <div className="stripe-redirect-mark"><span className="L">La</span><span className="v">v</span><span className="L">iolette</span></div>
-          <div className="stripe-redirect-icon">✓</div>
+      <div className="sign-page sign-page--signed">
+        <div className="sign-brand">
+          <span className="L">La</span><span className="v">v</span><span className="L">iolette</span>
+        </div>
+        <div className="sign-signed-success">
+          <div className="sign-signed-icon">✓</div>
           <h1>{state === 'signed' ? 'Signed' : 'Already signed'}</h1>
-          <p className="stripe-redirect-body">
+          <p>
             {contract?.client_name && <>Thank you, <strong>{contract.client_name}</strong>. </>}
             The contract <em>{contract?.name}</em> has been signed. A confirmation email is on its way.
           </p>
-          <p className="stripe-redirect-note">You can close this page.</p>
-          <div className="stripe-redirect-muted">
-            Questions? <a href="mailto:case.laviolette@gmail.com">case.laviolette@gmail.com</a>
+          <div className="sign-signed-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => window.print()}
+            >
+              Download signed copy (PDF)
+            </button>
+            <a
+              className="btn btn-secondary"
+              href={window.location.href}
+              onClick={(e) => { e.preventDefault(); window.location.reload() }}
+            >
+              Refresh
+            </a>
           </div>
+          <p className="sign-signed-note">
+            Use "Download signed copy" to save the fully-executed agreement as a PDF via your browser's Save-as-PDF option. Your copy is also emailed to you for safekeeping.
+          </p>
+        </div>
+        <h2 className="sign-signed-heading">Signed contract</h2>
+        <iframe
+          className="sign-content sign-content--signed"
+          title="Signed contract"
+          sandbox=""
+          srcDoc={contract?.filled_html || '<p>No content provided.</p>'}
+        />
+        <div className="sign-signed-footer-muted">
+          Questions? <a href="mailto:case.laviolette@gmail.com">case.laviolette@gmail.com</a>
         </div>
       </div>
     )
@@ -150,7 +215,12 @@ export default function Sign() {
       <h1 className="sign-title">{contract?.name}</h1>
       {contract?.client_name && <p className="sign-sub">Prepared for {contract.client_name}{contract.brand_name ? ` · ${contract.brand_name}` : ''}</p>}
 
-      <div className="sign-content" dangerouslySetInnerHTML={{ __html: contract.filled_html || '<p>No content provided.</p>' }} />
+      <iframe
+        className="sign-content"
+        title="Contract content"
+        sandbox=""
+        srcDoc={contract.filled_html || '<p>No content provided.</p>'}
+      />
 
       <form className="sign-form" onSubmit={submit}>
         <h2>Electronic signature</h2>
@@ -171,25 +241,67 @@ export default function Sign() {
           />
         </label>
 
-        <label className="sign-field">
-          <span>Draw your signature</span>
-          <canvas
-            ref={canvasRef}
-            width={900}
-            height={220}
-            className="sign-canvas"
-            onMouseDown={start}
-            onMouseMove={move}
-            onMouseUp={stop}
-            onMouseLeave={stop}
-            onTouchStart={start}
-            onTouchMove={move}
-            onTouchEnd={stop}
-          />
-          <button type="button" className="sign-clear" onClick={clearSig}>Clear</button>
-        </label>
+        <div className="sign-mode-toggle" role="tablist" aria-label="Signature mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'type'}
+            className={`sign-mode-btn ${mode === 'type' ? 'active' : ''}`}
+            onClick={() => setMode('type')}
+          >
+            Type
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'draw'}
+            className={`sign-mode-btn ${mode === 'draw' ? 'active' : ''}`}
+            onClick={() => setMode('draw')}
+          >
+            Draw
+          </button>
+        </div>
+
+        {mode === 'type' ? (
+          <label className="sign-field">
+            <span>Signature preview</span>
+            <div className="sign-typed-preview" aria-live="polite">
+              {signerName.trim() ? signerName : <span className="sign-typed-placeholder">Start typing your name above…</span>}
+            </div>
+            <p className="sign-mode-note">This cursive rendering is your signature. Switch to Draw if you'd rather sign with your finger/mouse.</p>
+          </label>
+        ) : (
+          <label className="sign-field">
+            <span>Draw your signature</span>
+            <canvas
+              ref={canvasRef}
+              width={900}
+              height={220}
+              className="sign-canvas"
+              onMouseDown={start}
+              onMouseMove={move}
+              onMouseUp={stop}
+              onMouseLeave={stop}
+              onTouchStart={start}
+              onTouchMove={move}
+              onTouchEnd={stop}
+            />
+            <button type="button" className="sign-clear" onClick={clearSig}>Clear</button>
+          </label>
+        )}
+
+        {/* Hidden canvas used to render typed signatures to base64 PNG so the
+            stored signature_data format is identical whether typed or drawn. */}
+        <canvas ref={hiddenCanvasRef} width={900} height={220} style={{ display: 'none' }} />
 
         {err && <div className="login-error">{err}</div>}
+
+        <p className="sign-consent">
+          By clicking <strong>I agree and sign</strong>, I consent to the use of
+          electronic signatures and agree that my electronic signature has the
+          same legal effect as a handwritten signature under the U.S. ESIGN Act
+          and the Uniform Electronic Transactions Act (UETA).
+        </p>
 
         <div className="sign-actions">
           <button type="submit" className="btn btn-primary" disabled={state === 'submitting'}>

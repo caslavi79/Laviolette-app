@@ -23,6 +23,62 @@ function StatusPill({ status, map = STATUS_COLOR }) {
   return <span style={badgeStyle(color)}>{status}</span>
 }
 
+/**
+ * Compute billing-state pill for a client based on current invoices + bank status.
+ * Priority order: past-due → clearing → queued → bank-needed → current → inert.
+ */
+function clientBillingState(client, invoices) {
+  const clientInvoices = (invoices || []).filter((i) => i.client_id === client.id)
+  const overdue = clientInvoices.find((i) => i.status === 'overdue')
+  // "Clearing" = we've pushed it to Stripe and ACH is in flight. Check BOTH PI and
+  // legacy Stripe-invoice IDs, since the new flow uses PaymentIntent.
+  const hasStripeRef = (i) => i.stripe_payment_intent_id || i.stripe_invoice_id
+  const clearing = clientInvoices.filter((i) => i.status === 'pending' && hasStripeRef(i))
+  const queued = clientInvoices.filter((i) =>
+    (i.status === 'pending' || i.status === 'draft') && !hasStripeRef(i)
+  )
+  const totalOf = (arr) => arr.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
+  const nextDate = (arr) => {
+    const dates = arr.map((i) => i.due_date).filter(Boolean).sort()
+    return dates[0] || null
+  }
+  const fmtShortDate = (d) => {
+    if (!d) return '—'
+    const [y, m, day] = String(d).split('T')[0].split('-').map(Number)
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  if (overdue) {
+    const total = totalOf(clientInvoices.filter((i) => i.status === 'overdue'))
+    return { label: `PAST DUE · ${fmtMoneyShort(total)}`, color: COLORS.red }
+  }
+  if (clearing.length > 0) {
+    const total = totalOf(clearing)
+    return { label: `ACH CLEARING · ${fmtMoneyShort(total)}`, color: COLORS.amber }
+  }
+  if (queued.length > 0 && !client.bank_info_on_file) {
+    const total = totalOf(queued)
+    return { label: `AWAITING BANK INFO · ${fmtMoneyShort(total)}`, color: COLORS.slate }
+  }
+  if (queued.length > 0 && client.bank_info_on_file) {
+    const total = totalOf(queued)
+    const date = nextDate(queued)
+    return { label: `QUEUED · ${fmtMoneyShort(total)} on ${fmtShortDate(date)}`, color: COLORS.amber }
+  }
+  if (client.bank_info_on_file) {
+    return { label: 'BANK READY', color: COLORS.green }
+  }
+  if (client.stripe_customer_id) {
+    return { label: 'AWAITING BANK INFO', color: COLORS.slate }
+  }
+  return null // no label when nothing meaningful (new client, no setup yet)
+}
+
+function BillingStatePill({ state }) {
+  if (!state) return null
+  return <span style={{ ...badgeStyle(state.color), marginLeft: 6 }}>{state.label}</span>
+}
+
 /* --------- page --------- */
 
 export default function Contacts() {
@@ -31,7 +87,7 @@ export default function Contacts() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedContactId, setSelectedContactId] = useState(null)
-  const [financials, setFinancials] = useState({ byClient: new Map(), byBrand: new Map() })
+  const [financials, setFinancials] = useState({ byClient: new Map(), byBrand: new Map(), allInvoices: [] })
   const [modalState, setModalState] = useState(null) // { kind, data }
   const [bankLink, setBankLink] = useState(null)     // { url, client_name } — populated by Send Bank Link
   const [bankBusy, setBankBusy] = useState(false)
@@ -61,15 +117,16 @@ export default function Contacts() {
   }, [])
 
   const loadFinancials = useCallback(async () => {
-    // Aggregate invoice totals per client + project totals per brand.
+    // Pull invoice rows (full) + project totals per brand.
     const [invRes, projRes] = await Promise.all([
-      supabase.from('invoices').select('client_id, total, paid_amount, status'),
+      supabase.from('invoices').select('id, client_id, total, paid_amount, status, due_date, stripe_invoice_id, stripe_payment_intent_id, invoice_number'),
       supabase.from('projects').select('brand_id, type, total_fee, status'),
     ])
     if (invRes.error) { setErr(invRes.error.message); return }
     if (projRes.error) { setErr(projRes.error.message); return }
+    const allInvoices = invRes.data || []
     const byClient = new Map()
-    for (const i of invRes.data || []) {
+    for (const i of allInvoices) {
       const entry = byClient.get(i.client_id) || { paid: 0, outstanding: 0, recurring: 0 }
       const total = parseFloat(i.total) || 0
       if (i.status === 'paid') entry.paid += total
@@ -88,9 +145,7 @@ export default function Contacts() {
       if (p.type === 'buildout') entry.buildoutTotal += parseFloat(p.total_fee) || 0
       byBrand.set(p.brand_id, entry)
     }
-    // Roll client recurring from its brands (for now, we store per-project; sum manually per brand into client)
-    // We leave client.recurring = sum of its brands' retainers for display
-    setFinancials({ byClient, byBrand })
+    setFinancials({ byClient, byBrand, allInvoices })
   }, [])
 
   useEffect(() => { loadContacts(); loadFinancials() }, [loadContacts, loadFinancials])
@@ -403,6 +458,7 @@ function ClientCard({
 }) {
   const f = financials.byClient.get(client.id) || { paid: 0, outstanding: 0 }
   const canSendBankLink = client.stripe_customer_id && !client.bank_info_on_file
+  const billingState = clientBillingState(client, financials.allInvoices || [])
 
   return (
     <div className="client-card">
@@ -411,6 +467,11 @@ function ClientCard({
           <div className="client-card-name">{client.name}</div>
           {client.legal_name && client.legal_name !== client.name && (
             <div className="client-card-legal">{client.legal_name}</div>
+          )}
+          {billingState && (
+            <div style={{ marginTop: 6 }}>
+              <BillingStatePill state={billingState} />
+            </div>
           )}
         </div>
         <div className="client-card-actions">

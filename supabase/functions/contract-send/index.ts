@@ -23,6 +23,7 @@ const BRAND_BG = Deno.env.get('BRAND_BG') || '#12100D'
 const BRAND_INK = Deno.env.get('BRAND_INK') || '#F4F0E8'
 const BRAND_LOGO_URL = Deno.env.get('BRAND_LOGO_URL') || ''
 const SIGNING_BASE_URL = Deno.env.get('SIGNING_BASE_URL') || 'https://app.laviolette.io/sign'
+const CASE_NOTIFY_EMAIL = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.com'
 
 const ALLOWED_ORIGINS = [
   'https://app.laviolette.io',
@@ -69,12 +70,21 @@ Deno.serve(async (req: Request) => {
 
     const { data: contract, error } = await supabase
       .from('contracts')
-      .select('*, clients(name, legal_name)')
+      .select('*, clients(name, legal_name, billing_email)')
       .eq('id', contract_id)
       .single()
 
     if (error || !contract) return json({ success: false, error: 'Contract not found' }, 404, corsHeaders)
-    if (!contract.signer_email) return json({ success: false, error: 'No signer email set' }, 400, corsHeaders)
+
+    // Fall back to client.billing_email if signer_email wasn't set explicitly
+    const recipientEmail = contract.signer_email || contract.clients?.billing_email
+    if (!recipientEmail) {
+      return json(
+        { success: false, error: 'No signer email set and client has no billing_email. Set one or the other on the contract detail page.' },
+        400,
+        corsHeaders
+      )
+    }
     if (!contract.filled_html) return json({ success: false, error: 'Contract has no content. Fill it in before sending.' }, 400, corsHeaders)
     if (contract.status === 'signed' || contract.status === 'active') {
       return json({ success: false, error: 'Contract is already signed.' }, 400, corsHeaders)
@@ -119,20 +129,36 @@ Deno.serve(async (req: Request) => {
       .update({ status: 'sent', sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', contract.id)
 
+    const from = `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`
+    const emailSubject = `Contract for your review: ${title}`
     const emailRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
-        to: [contract.signer_email],
+        from,
+        to: [recipientEmail],
+        bcc: [CASE_NOTIFY_EMAIL],
         reply_to: BRAND_REPLY_TO || undefined,
-        subject: `Contract for your review: ${title}`,
+        subject: emailSubject,
         html: emailHtml,
       }),
     })
     const emailResult = await emailRes.json()
     if (!emailRes.ok) {
       console.error('Resend error:', JSON.stringify(emailResult))
+      // Persist to dead-letter queue so Case can retry from the Notifications page
+      try {
+        await supabase.from('notification_failures').insert({
+          kind: 'client',
+          context: `contract-send:${contract.id}`,
+          subject: emailSubject,
+          to_email: recipientEmail,
+          error: JSON.stringify(emailResult).slice(0, 500),
+          payload: { from, reply_to: BRAND_REPLY_TO, html: emailHtml },
+        })
+      } catch (e) {
+        console.error(`[contract-send] failed to persist failure: ${(e as Error).message}`)
+      }
       return json({ success: false, error: 'Failed to send email' }, 500, corsHeaders)
     }
 

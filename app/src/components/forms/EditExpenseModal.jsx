@@ -57,6 +57,8 @@ export default function EditExpenseModal({ expense, clients, brands, onClose, on
     setErr('')
     if (!form.description.trim()) { setErr('Description required.'); return }
     if (!form.amount) { setErr('Amount required.'); return }
+    const amt = parseFloat(form.amount)
+    if (!Number.isFinite(amt) || amt <= 0) { setErr('Amount must be a positive number.'); return }
     setBusy(true)
     const payload = {
       date: form.date,
@@ -104,7 +106,7 @@ export default function EditExpenseModal({ expense, clients, brands, onClose, on
   return (
     <Modal onClose={onClose} title={isNew ? 'Add expense' : `Edit ${expense.description}`} width="medium">
       <form onSubmit={handleSubmit} className="form-grid">
-        <TextField id="amount" type="number" step="0.01" label="Amount ($)" required autoFocus value={form.amount} onChange={set('amount')} inputMode="decimal" />
+        <TextField id="amount" type="number" step="0.01" min="0" label="Amount ($)" required autoFocus value={form.amount} onChange={set('amount')} inputMode="decimal" />
         <TextField id="date" type="date" label="Date" required value={form.date} onChange={set('date')} />
         <TextField id="description" label="Description" span="full" required value={form.description} onChange={set('description')} placeholder='"Claude Pro subscription", "Client dinner — Dustin"' />
         <TextField id="vendor" label="Vendor" value={form.vendor} onChange={set('vendor')} placeholder="Anthropic, GoDaddy, etc." />

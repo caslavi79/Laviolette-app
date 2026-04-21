@@ -214,13 +214,15 @@ Deno.serve(async (req: Request) => {
   </p>
 </div>`
 
+  const from = `${BRAND_NAME} HQ <${BRAND_FROM_EMAIL}>`
+  const subject = `${esc(dateLabel)} · ${lines.length} item${lines.length === 1 ? '' : 's'} to handle`
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: `${BRAND_NAME} HQ <${BRAND_FROM_EMAIL}>`,
+      from,
       to: [CASE_EMAIL],
-      subject: `${esc(dateLabel)} · ${lines.length} item${lines.length === 1 ? '' : 's'} to handle`,
+      subject,
       html: emailHtml,
     }),
   })
@@ -228,6 +230,19 @@ Deno.serve(async (req: Request) => {
   if (!emailRes.ok) {
     const errorBody = await emailRes.text()
     console.error('send-reminders email error:', errorBody)
+    // Dead-letter so Case has visibility (cron is unattended)
+    try {
+      await supabase.from('notification_failures').insert({
+        kind: 'internal',
+        context: `send-reminders:${dateLabel}`,
+        subject,
+        to_email: CASE_EMAIL,
+        error: `${emailRes.status}: ${errorBody.slice(0, 500)}`,
+        payload: { from, html: emailHtml },
+      })
+    } catch (e) {
+      console.error(`send-reminders: failed to persist failure: ${(e as Error).message}`)
+    }
     return new Response(JSON.stringify({ ok: false, error: 'Failed to send reminder email' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
 

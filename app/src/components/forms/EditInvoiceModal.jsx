@@ -18,6 +18,10 @@ const blankLine = () => ({ description: '', amount: '' })
 
 export default function EditInvoiceModal({ invoice, clients, brands, projects, onClose, onSaved }) {
   const isNew = !invoice?.id
+  // If a PaymentIntent (or legacy Stripe Invoice) has been created, the amount is
+  // frozen in Stripe — editing totals here would desync DB from Stripe, breaking
+  // reconciliation when the webhook arrives. Lock amount-affecting fields.
+  const amountLocked = !!(invoice?.stripe_payment_intent_id || invoice?.stripe_invoice_id)
   const [form, setForm] = useState({
     client_id: invoice?.client_id || '',
     brand_id: invoice?.brand_id || '',
@@ -76,24 +80,38 @@ export default function EditInvoiceModal({ invoice, clients, brands, projects, o
     if (form.line_items.length === 0 || form.line_items.every((l) => !l.description)) {
       setErr('At least one line item required.'); return
     }
+    const hasNegative = form.line_items.some((l) => (parseFloat(l.amount) || 0) < 0)
+    if (hasNegative) { setErr('Line item amounts cannot be negative.'); return }
+    if ((parseFloat(form.tax) || 0) < 0) { setErr('Tax cannot be negative.'); return }
     setBusy(true)
     const clean = form.line_items
       .filter((l) => l.description || l.amount)
       .map((l) => ({ description: l.description, amount: parseFloat(l.amount) || 0 }))
-    const payload = {
-      client_id: form.client_id,
-      brand_id: form.brand_id || null,
-      project_id: form.project_id || null,
-      invoice_number: form.invoice_number.trim(),
-      description: form.description.trim() || null,
-      line_items: clean,
-      subtotal,
-      tax: parseFloat(form.tax) || 0,
-      total,
-      status: form.status,
-      due_date: form.due_date,
-      notes: form.notes.trim() || null,
-    }
+    // When the invoice is locked (PI or legacy Stripe invoice created), omit the
+    // amount-bearing columns from the update so the DB value stays in lockstep with Stripe.
+    const payload = amountLocked
+      ? {
+          client_id: form.client_id,
+          brand_id: form.brand_id || null,
+          project_id: form.project_id || null,
+          description: form.description.trim() || null,
+          status: form.status,
+          notes: form.notes.trim() || null,
+        }
+      : {
+          client_id: form.client_id,
+          brand_id: form.brand_id || null,
+          project_id: form.project_id || null,
+          invoice_number: form.invoice_number.trim(),
+          description: form.description.trim() || null,
+          line_items: clean,
+          subtotal,
+          tax: parseFloat(form.tax) || 0,
+          total,
+          status: form.status,
+          due_date: form.due_date,
+          notes: form.notes.trim() || null,
+        }
     try {
       if (isNew) {
         const { data, error } = await supabase.from('invoices').insert(payload).select().single()
@@ -130,14 +148,20 @@ export default function EditInvoiceModal({ invoice, clients, brands, projects, o
   return (
     <Modal onClose={onClose} title={isNew ? 'Create invoice' : `Edit ${invoice.invoice_number}`} width="large">
       <form onSubmit={handleSubmit} className="form-grid">
-        <TextField id="invoice_number" label="Invoice #" value={form.invoice_number} onChange={set('invoice_number')} required />
+        {amountLocked && (
+          <div className="form-notice" style={{ gridColumn: '1 / -1' }}>
+            Amount fields are locked because this invoice is already pushed to Stripe.
+            Description, status, and notes can still be edited.
+          </div>
+        )}
+        <TextField id="invoice_number" label="Invoice #" value={form.invoice_number} onChange={set('invoice_number')} required disabled={amountLocked} />
         <SelectField id="status" label="Status" value={form.status} onChange={set('status')} options={STATUS_OPTS} />
         <SelectField id="client_id" label="Client" span="full" value={form.client_id} onChange={set('client_id')} options={clientOpts} />
         <SelectField id="brand_id" label="Brand (optional)" value={form.brand_id} onChange={set('brand_id')} options={brandOpts} />
         <SelectField id="project_id" label="Project (optional)" value={form.project_id} onChange={set('project_id')} options={projectOpts} />
         <TextField id="description" label="Description" span="full" value={form.description} onChange={set('description')} placeholder='"Citrus and Salt Retainer — May 2026"' />
         <div className="field field--span-full">
-          <label>Line items</label>
+          <label>Line items{amountLocked && ' (read-only)'}</label>
           <div className="line-items">
             {form.line_items.map((l, idx) => (
               <div key={idx} className="line-item">
@@ -146,22 +170,25 @@ export default function EditInvoiceModal({ invoice, clients, brands, projects, o
                   placeholder="Description"
                   value={l.description}
                   onChange={(e) => setLine(idx, 'description')(e.target.value)}
+                  disabled={amountLocked}
                 />
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   placeholder="Amount"
                   value={l.amount}
                   onChange={(e) => setLine(idx, 'amount')(e.target.value)}
+                  disabled={amountLocked}
                 />
-                <button type="button" className="btn btn-danger-link" onClick={() => removeLine(idx)}>×</button>
+                <button type="button" className="btn btn-danger-link" onClick={() => removeLine(idx)} disabled={amountLocked}>×</button>
               </div>
             ))}
-            <button type="button" className="btn btn-link" onClick={addLine}>+ Add line</button>
+            {!amountLocked && <button type="button" className="btn btn-link" onClick={addLine}>+ Add line</button>}
           </div>
         </div>
-        <TextField id="due_date" type="date" label="Due date" required value={form.due_date} onChange={set('due_date')} />
-        <TextField id="tax" type="number" step="0.01" label="Tax ($)" value={form.tax} onChange={set('tax')} />
+        <TextField id="due_date" type="date" label="Due date" required value={form.due_date} onChange={set('due_date')} disabled={amountLocked} />
+        <TextField id="tax" type="number" step="0.01" min="0" label="Tax ($)" value={form.tax} onChange={set('tax')} disabled={amountLocked} />
         <div className="field field--span-full">
           <label>Totals</label>
           <div className="invoice-totals">

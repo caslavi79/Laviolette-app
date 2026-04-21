@@ -37,20 +37,24 @@ export default function Money() {
 /* ================ INVOICES ================ */
 
 function InvoicesTab() {
+  const [params] = useSearchParams()
+  const highlightId = params.get('highlight')
   const [invoices, setInvoices] = useState([])
   const [clients, setClients] = useState([])
   const [brands, setBrands] = useState([])
   const [projects, setProjects] = useState([])
-  const [expanded, setExpanded] = useState(null)
+  const [expanded, setExpanded] = useState(highlightId || null)
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
+  const [chargingId, setChargingId] = useState(null)
+  const [chargeResult, setChargeResult] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     const [invRes, clRes, brRes, prRes] = await Promise.all([
-      supabase.from('invoices').select('*, clients(id, name, legal_name)').order('due_date', { ascending: false }),
+      supabase.from('invoices').select('*, clients(id, name, legal_name, stripe_customer_id, bank_info_on_file)').order('due_date', { ascending: false }),
       supabase.from('clients').select('id, name, legal_name').order('name'),
       supabase.from('brands').select('id, name, client_id').order('name'),
       supabase.from('projects').select('id, name, type, brand_id, total_fee, brands(id, name, client_id)').order('name'),
@@ -67,6 +71,53 @@ function InvoicesTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Deep-link support: ?highlight=<invoice_id> from the fire-day reminder email
+  // scrolls to + flashes + expands the target invoice. Runs once when load finishes.
+  useEffect(() => {
+    if (!highlightId || loading || invoices.length === 0) return
+    const el = document.querySelector(`[data-invoice-id="${highlightId}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('invoice-row--flash')
+    const t = setTimeout(() => el.classList.remove('invoice-row--flash'), 3000)
+    return () => clearTimeout(t)
+  }, [highlightId, loading, invoices.length])
+
+  const chargeInvoice = async (inv) => {
+    // Guard against double-click: if a charge is already in flight (either this invoice or
+    // any other), ignore the second click. Prevents duplicate Stripe invoices from
+    // rapid-fire clicks before React re-renders with the disabled state.
+    if (chargingId !== null) return
+    // Mark charging synchronously BEFORE the confirm() dialog so the button disables instantly.
+    setChargingId(inv.id); setChargeResult(null); setErr('')
+    if (!confirm(`Charge ${inv.clients?.legal_name || inv.clients?.name} ${fmtMoneyShort(inv.total)} via Stripe now? This initiates the ACH debit.`)) {
+      setChargingId(null)
+      return
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not authenticated.')
+      const base = import.meta.env.VITE_SUPABASE_URL
+      const resp = await fetch(`${base}/functions/v1/create-stripe-invoice`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invoice_id: inv.id }),
+      })
+      const payload = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(payload.error || `HTTP ${resp.status}`)
+      setChargeResult({ ok: true, invoice_id: inv.id, ...payload })
+      load()
+    } catch (e) {
+      setChargeResult({ ok: false, invoice_id: inv.id, error: e.message })
+    } finally {
+      setChargingId(null)
+    }
+  }
 
   // Group invoices
   const groups = useMemo(() => {
@@ -99,7 +150,9 @@ function InvoicesTab() {
     const m0 = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10)
     const m1 = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10)
     return invoices
-      .filter((i) => i.paid_date && i.paid_date >= m0 && i.paid_date <= m1)
+      // Only count money that's actually been received — status must be 'paid' or 'partially_paid'.
+      // A stray paid_date on a 'pending' invoice (e.g. an ACH still clearing) doesn't mean money's in.
+      .filter((i) => (i.status === 'paid' || i.status === 'partially_paid') && i.paid_date && i.paid_date >= m0 && i.paid_date <= m1)
       .reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
   }, [invoices])
 
@@ -115,10 +168,10 @@ function InvoicesTab() {
 
       {loading ? <div className="loading">Loading…</div> : (
         <>
-          <InvoiceGroup label="Overdue / partially paid" color={COLORS.red} rows={groups.overdue} expanded={expanded} setExpanded={setExpanded} setModal={setModal} />
-          <InvoiceGroup label="Due this month" color={COLORS.amber} rows={groups.due_month} expanded={expanded} setExpanded={setExpanded} setModal={setModal} />
-          <InvoiceGroup label="Coming up" color={COLORS.steel} rows={groups.coming_up} expanded={expanded} setExpanded={setExpanded} setModal={setModal} />
-          <InvoiceGroup label="Paid" color={COLORS.green} rows={groups.paid} expanded={expanded} setExpanded={setExpanded} setModal={setModal} collapsedByDefault />
+          <InvoiceGroup label="Overdue / partially paid" color={COLORS.red} rows={groups.overdue} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
+          <InvoiceGroup label="Due this month" color={COLORS.amber} rows={groups.due_month} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
+          <InvoiceGroup label="Coming up" color={COLORS.steel} rows={groups.coming_up} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} />
+          <InvoiceGroup label="Paid" color={COLORS.green} rows={groups.paid} expanded={expanded} setExpanded={setExpanded} setModal={setModal} chargeInvoice={chargeInvoice} chargingId={chargingId} chargeResult={chargeResult} collapsedByDefault />
         </>
       )}
 
@@ -143,7 +196,7 @@ function InvoicesTab() {
   )
 }
 
-function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, collapsedByDefault }) {
+function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, chargeInvoice, chargingId, chargeResult, collapsedByDefault }) {
   const [open, setOpen] = useState(!collapsedByDefault)
   if (rows.length === 0) return null
   const total = rows.reduce((s, i) => s + (parseFloat(i.total) || 0), 0)
@@ -166,6 +219,9 @@ function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, col
               isExpanded={expanded === inv.id}
               onExpand={() => setExpanded(expanded === inv.id ? null : inv.id)}
               setModal={setModal}
+              chargeInvoice={chargeInvoice}
+              chargingId={chargingId}
+              chargeResult={chargeResult}
             />
           ))}
         </ul>
@@ -174,12 +230,12 @@ function InvoiceGroup({ label, color, rows, expanded, setExpanded, setModal, col
   )
 }
 
-function InvoiceRow({ inv, isExpanded, onExpand, setModal }) {
+function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargingId, chargeResult }) {
   const du = daysUntil(inv.due_date)
   const isOverdue = (inv.status === 'overdue') || (inv.status === 'pending' && du !== null && du < 0)
   const color = colorForInvoiceStatus(isOverdue ? 'overdue' : inv.status)
   return (
-    <li className={`invoice-row ${isExpanded ? 'expanded' : ''}`}>
+    <li className={`invoice-row ${isExpanded ? 'expanded' : ''}`} data-invoice-id={inv.id}>
       <div className="invoice-row-main" onClick={onExpand}>
         <span className="invoice-number">{inv.invoice_number}</span>
         <span className="invoice-client">{inv.clients?.legal_name || inv.clients?.name || '—'}</span>
@@ -202,13 +258,54 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal }) {
             </ul>
           )}
           {inv.notes && <div className="invoice-notes">{inv.notes}</div>}
+          {inv.stripe_invoice_id && (
+            <div className="invoice-stripe-ref">Stripe invoice: <code style={{ fontSize: 11 }}>{inv.stripe_invoice_id}</code></div>
+          )}
           <div className="invoice-actions">
+            {/* Show "Charge via ACH" only when invoice is genuinely chargeable: not yet pushed
+                (no PI and no legacy Stripe invoice), the client has a Stripe customer, AND
+                has completed bank setup. PaymentIntent flow requires a default PM — if no
+                bank on file, show a disabled informational button instead. */}
+            {(inv.status === 'draft' || inv.status === 'pending')
+              && !inv.stripe_invoice_id
+              && !inv.stripe_payment_intent_id
+              && inv.clients?.stripe_customer_id
+              && inv.clients?.bank_info_on_file && (
+              <button
+                className="btn btn-primary"
+                onClick={() => chargeInvoice(inv)}
+                disabled={chargingId === inv.id}
+                title="Initiate ACH debit via Stripe (3-5 days to clear)"
+              >
+                {chargingId === inv.id ? 'Charging…' : 'Charge via ACH'}
+              </button>
+            )}
+            {(inv.status === 'draft' || inv.status === 'pending')
+              && !inv.stripe_invoice_id
+              && !inv.stripe_payment_intent_id
+              && inv.clients?.stripe_customer_id
+              && !inv.clients?.bank_info_on_file && (
+              <span className="invoice-bank-hint">Waiting on client bank setup</span>
+            )}
             {inv.status !== 'paid' && inv.status !== 'void' && (
-              <button className="btn btn-primary" onClick={() => setModal({ kind: 'paid', data: inv })}>Mark paid</button>
+              <button className="btn btn-secondary" onClick={() => setModal({ kind: 'paid', data: inv })}>Mark paid</button>
             )}
             <button className="btn btn-secondary" onClick={() => setModal({ kind: 'invoice', data: inv })}>Edit</button>
-            {inv.paid_date && <span className="invoice-paid-note">Paid {fmtDate(inv.paid_date)} · {inv.payment_method?.replace('_', ' ')}</span>}
+            {inv.paid_date && (inv.status === 'paid' || inv.status === 'partially_paid') && (
+              <span className="invoice-paid-note">Paid {fmtDate(inv.paid_date)} · {inv.payment_method?.replace('_', ' ')}</span>
+            )}
           </div>
+          {chargeResult?.invoice_id === inv.id && (
+            <div className={chargeResult.ok ? 'send-result send-result--ok' : 'send-result send-result--warn'}>
+              {chargeResult.ok ? (
+                <>
+                  ✓ Pushed to Stripe — {chargeResult.collection_method === 'charge_automatically' ? 'ACH debit initiated (3-5 days to clear)' : 'payment email sent to client'}
+                </>
+              ) : (
+                <>✗ {chargeResult.error}</>
+              )}
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -252,6 +349,9 @@ function RevenueTab() {
   const thisMonth = new Date().getMonth()
 
   const paidInMonth = (m) => invoices.filter((i) => {
+    // Only count invoices that are actually paid (or partially paid). A stray paid_date on a
+    // 'pending' row (e.g., an ACH still clearing) should NOT count as revenue yet.
+    if (i.status !== 'paid' && i.status !== 'partially_paid') return false
     if (!i.paid_date) return false
     const d = new Date(i.paid_date + 'T00:00:00')
     return d.getFullYear() === year && d.getMonth() === m
@@ -288,8 +388,12 @@ function RevenueTab() {
       .sort((a, b) => b.total - a.total)
   }, [invoices, clients])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ytdReceived = invoices.filter((i) => i.paid_date && new Date(i.paid_date).getFullYear() === year).reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
-  const ytdExpenses = expenses.filter((e) => new Date(e.date).getFullYear() === year).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  // Year extraction from YYYY-MM-DD strings directly avoids the UTC→local-year
+  // flip bug: `new Date('2027-01-01').getFullYear()` in CT returns 2026 (because
+  // UTC midnight Jan 1 is Dec 31 6pm local). String-slicing sidesteps timezone entirely.
+  const yearMatches = (dateStr) => typeof dateStr === 'string' && dateStr.slice(0, 4) === String(year)
+  const ytdReceived = invoices.filter((i) => i.paid_date && yearMatches(i.paid_date)).reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
+  const ytdExpenses = expenses.filter((e) => yearMatches(e.date)).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
   if (loading) return <div className="loading">Loading…</div>
 

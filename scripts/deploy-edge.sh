@@ -46,6 +46,7 @@ FUNCTIONS=(
   generate-daily-rounds
   check-overdue-invoices
   advance-contract-status
+  auto-push-invoices
 )
 
 echo "════════════════════════════════════════════"

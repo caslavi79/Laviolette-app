@@ -38,8 +38,26 @@ export default function MarkPaidModal({ invoice, onClose, onSaved }) {
       notes: form.note ? ((invoice.notes ? invoice.notes + '\n— ' : '') + `Payment ${form.date}: $${paid} via ${form.method}. ${form.note}`) : invoice.notes,
     }
     try {
-      const { data, error } = await supabase.from('invoices').update(patch).eq('id', invoice.id).select().single()
+      const { data, error } = await supabase.from('invoices').update(patch).eq('id', invoice.id).select('*, clients(legal_name, name, billing_email), brands(name)').single()
       if (error) throw error
+      // Fire receipt + HQ alert for manually-recorded payments so there's parity with
+      // the Stripe auto-pay flow. Non-blocking — failures log but don't undo the save.
+      if (isFull) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const token = session?.access_token
+          if (token) {
+            const base = import.meta.env.VITE_SUPABASE_URL
+            await fetch(`${base}/functions/v1/send-manual-receipt`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ invoice_id: invoice.id }),
+            }).catch((e) => console.error('manual-receipt fire-and-forget failed:', e))
+          }
+        } catch (sendErr) {
+          console.error('mark-paid receipt dispatch failed:', sendErr)
+        }
+      }
       onSaved(data, 'updated')
       onClose()
     } catch (e) { setErr(e.message || String(e)) } finally { setBusy(false) }

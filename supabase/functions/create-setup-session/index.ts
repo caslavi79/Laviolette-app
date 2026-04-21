@@ -62,6 +62,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'stripe_customer_id must start with "cus_"' }, 400, corsHeaders)
     }
 
+    // Verify the customer actually exists + isn't deleted in Stripe.
+    // Avoids cryptic downstream errors during session creation.
+    try {
+      const existing = await stripe.customers.retrieve(stripe_customer_id)
+      if ((existing as { deleted?: boolean }).deleted) {
+        return json({ error: 'Stripe customer has been deleted. Create a fresh customer first.' }, 400, corsHeaders)
+      }
+    } catch (err) {
+      const sErr = err as { code?: string; message?: string }
+      if (sErr.code === 'resource_missing') {
+        return json({ error: `Stripe customer ${stripe_customer_id} not found.` }, 404, corsHeaders)
+      }
+      console.error('create-setup-session: customer retrieve failed:', sErr.message)
+      return json({ error: 'Failed to verify customer in Stripe.' }, 502, corsHeaders)
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: stripe_customer_id,
       mode: 'setup',

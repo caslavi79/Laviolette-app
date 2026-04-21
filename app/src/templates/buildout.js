@@ -9,6 +9,7 @@
  */
 
 const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
   .contract-doc { all: initial; display: block; font-family: 'Times New Roman', Georgia, serif; font-size: 14px; line-height: 1.6; color: #1a1a1a; background: #fff; max-width: 720px; margin: 0 auto; }
   .contract-doc * { color: #1a1a1a; }
   .contract-doc h1 { font-family: inherit; font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 6px; letter-spacing: 0.5px; }
@@ -24,7 +25,10 @@ const CSS = `
   .contract-doc th { background: #efefef; font-weight: 700; }
   .contract-doc .sig-block { margin-top: 40px; }
   .contract-doc .sig-line { border: none; border-top: 1px solid #333; width: 300px; margin: 28px 0 4px; height: 0; }
+  .contract-doc .sig-cursive { font-family: 'Great Vibes', 'Apple Chancery', cursive; font-size: 30px; color: #12100D; line-height: 1; margin: 22px 0 2px; }
+  .contract-doc .sig-underline { border-bottom: 1px solid #333; width: 300px; margin-bottom: 4px; }
   .contract-doc .sig-name { font-weight: 700; }
+  .contract-doc .sig-provider-note { font-size: 11px; color: #555; font-style: italic; }
   .contract-doc .footer { text-align: center; font-size: 10px; color: #888; margin-top: 36px; padding-top: 12px; border-top: 1px solid #ddd; }
   .contract-doc .footer * { color: #888; }
 `
@@ -193,10 +197,12 @@ ${v.deliverables_table_html || '<p><em>No deliverables defined yet. Add delivera
 
 <div class="sig-block">
   <p style="font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:1px;">SERVICE PROVIDER</p>
-  <div class="sig-line"></div>
+  <div class="sig-cursive">${esc(v.provider_name)}</div>
+  <div class="sig-underline"></div>
   <p class="sig-name">${esc(v.provider_name)}</p>
   <p>Service Provider</p>
-  <p>Signing Date: _______________</p>
+  <p>Signing Date: ${esc(v.provider_signed_date)}</p>
+  <p class="sig-provider-note">Signed electronically by ${esc(v.provider_name)} under the U.S. ESIGN Act and UETA.</p>
   <p>Email for Notices: ${esc(v.provider_email)}</p>
 </div>
 

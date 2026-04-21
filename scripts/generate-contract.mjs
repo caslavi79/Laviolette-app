@@ -38,13 +38,40 @@ const dryRun = args.includes('--dry-run')
 const toggleOverrides = {}
 const setOverrides = {}
 
+// Whitelist for --set. Prevents tampering with protected legal fields (monthly_rate,
+// provider_name, termination_fee, etc) via CLI. Template `esc()` blocks HTML injection,
+// but the whitelist stops accidental or malicious overrides of rate/party/term fields.
+const SET_WHITELIST = new Set([
+  'governing_state',
+  'governing_county',
+  'effective_date',
+  'intro_term_months',
+  'intro_term_end',
+  'payment_method',
+  'timeline',
+])
+
+const SET_WHITELIST_VALID_TOGGLES = new Set([
+  'remote_systems', 'reporting', 'late_fees', 'rate_adjustments',
+  'revisions', 'post_engagement',
+])
+
 args.forEach((arg, i) => {
   if (arg === '--toggle' && args[i + 1]) {
     const [k, v] = args[i + 1].split('=')
+    if (!SET_WHITELIST_VALID_TOGGLES.has(k)) {
+      console.error(`Unknown --toggle key "${k}". Allowed: ${[...SET_WHITELIST_VALID_TOGGLES].join(', ')}`)
+      process.exit(1)
+    }
     toggleOverrides[k] = v !== 'false'
   }
   if (arg === '--set' && args[i + 1]) {
     const [k, ...rest] = args[i + 1].split('=')
+    if (!SET_WHITELIST.has(k)) {
+      console.error(`--set "${k}" is not in the override whitelist. Allowed: ${[...SET_WHITELIST].join(', ')}`)
+      console.error(`Edit the contract directly in the app if you need to change a protected field.`)
+      process.exit(1)
+    }
     setOverrides[k] = rest.join('=')
   }
 })

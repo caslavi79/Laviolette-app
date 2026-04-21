@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
@@ -27,6 +28,7 @@ function GuardedNavLink({ to, end, children }) {
 
 export default function Layout() {
   const navigate = useNavigate()
+  const [alertCount, setAlertCount] = useState(0)
 
   const handleLogout = async () => {
     if (window.__unsavedChangesGuard && !window.confirm('You have unsaved changes. Discard them?')) return
@@ -34,6 +36,20 @@ export default function Layout() {
     if (error && import.meta.env.DEV) console.error('Logout error:', error.message)
     navigate('/login')
   }
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = async () => {
+      const { count } = await supabase
+        .from('notification_failures')
+        .select('id', { count: 'exact', head: true })
+        .is('resolved_at', null)
+      if (!cancelled) setAlertCount(count || 0)
+    }
+    refresh()
+    const iv = setInterval(refresh, 60_000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [])
 
   return (
     <div className="app-layout">
@@ -49,6 +65,14 @@ export default function Layout() {
           <GuardedNavLink to="/projects">Projects</GuardedNavLink>
           <GuardedNavLink to="/money">Money</GuardedNavLink>
           <GuardedNavLink to="/contracts">Contracts</GuardedNavLink>
+          {alertCount > 0 && (
+            <GuardedNavLink to="/notifications">
+              <span className="nav-alert-row">
+                <span>Alerts</span>
+                <span className="nav-alert-badge">{alertCount}</span>
+              </span>
+            </GuardedNavLink>
+          )}
         </nav>
         <button onClick={handleLogout} className="sidebar-logout">Log Out</button>
       </aside>

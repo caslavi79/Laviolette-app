@@ -20,6 +20,7 @@
  */
 
 const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
   .contract-doc { all: initial; display: block; font-family: 'Times New Roman', Georgia, serif; font-size: 14px; line-height: 1.6; color: #1a1a1a; background: #fff; max-width: 720px; margin: 0 auto; }
   .contract-doc * { color: #1a1a1a; }
   .contract-doc h1 { font-family: inherit; font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 6px; letter-spacing: 0.5px; }
@@ -35,7 +36,10 @@ const CSS = `
   .contract-doc th { background: #efefef; font-weight: 700; }
   .contract-doc .sig-block { margin-top: 40px; }
   .contract-doc .sig-line { border: none; border-top: 1px solid #333; width: 300px; margin: 28px 0 4px; height: 0; }
+  .contract-doc .sig-cursive { font-family: 'Great Vibes', 'Apple Chancery', cursive; font-size: 30px; color: #12100D; line-height: 1; margin: 22px 0 2px; }
+  .contract-doc .sig-underline { border-bottom: 1px solid #333; width: 300px; margin-bottom: 4px; }
   .contract-doc .sig-name { font-weight: 700; }
+  .contract-doc .sig-provider-note { font-size: 11px; color: #555; font-style: italic; }
   .contract-doc .footer { text-align: center; font-size: 10px; color: #888; margin-top: 36px; padding-top: 12px; border-top: 1px solid #ddd; }
   .contract-doc .footer * { color: #888; }
 `
@@ -46,9 +50,10 @@ export function generateRetainerHTML(v, t = {}) {
     reporting: true,
     late_fees: true,
     rate_adjustments: true,
-    pre_effective_termination: true,
     ...t,
   }
+  // §4.1 Pre-Effective Date Termination is a non-negotiable protective clause
+  // per contract-playbook.md — hardcoded below, intentionally not toggleable.
 
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -104,10 +109,8 @@ ${toggles.rate_adjustments ? `
 
 <p>This Agreement begins on the Effective Date (${esc(v.effective_date)}) and runs for an initial introductory term of ${esc(v.intro_term_months)} months, ending ${esc(v.intro_term_end)}. After the introductory term, the Agreement continues on a month-to-month basis.</p>
 
-${toggles.pre_effective_termination ? `
 <h3>4.1 Pre-Effective Date Termination by Client</h3>
 <p>If Client terminates or attempts to terminate this Agreement at any point after signing but before ${esc(v.effective_date)}, Client still owes the first monthly payment of $${esc(v.monthly_rate)} due ${esc(v.effective_date)}. This amount is non-refundable and non-negotiable. It represents a reasonable estimate of Provider's damages from early termination, including but not limited to lost opportunity cost from declining other engagements, resource allocation and scheduling commitments made in reliance on this Agreement, and the difficulty of precisely calculating such damages at the time of contracting.</p>
-` : ''}
 
 <h3>4.2 Termination During the Introductory Term by Client</h3>
 <p>If Client terminates during the introductory term (${esc(v.effective_date)} – ${esc(v.intro_term_end)}), the current month's payment is immediately due in full plus one additional month's payment of $${esc(v.monthly_rate)} as a termination fee. This termination fee represents a reasonable estimate of Provider's damages from early termination, including but not limited to lost opportunity cost from declining other engagements, resource allocation and scheduling commitments made in reliance on this Agreement, and the difficulty of precisely calculating such damages at the time of contracting. This termination fee is not a penalty. All services cease upon the effective date of termination.</p>
@@ -223,10 +226,12 @@ ${toggles.reporting ? `
 
 <div class="sig-block">
   <p style="font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:1px;">SERVICE PROVIDER</p>
-  <div class="sig-line"></div>
+  <div class="sig-cursive">${esc(v.provider_name)}</div>
+  <div class="sig-underline"></div>
   <p class="sig-name">${esc(v.provider_name)}</p>
   <p>Service Provider</p>
-  <p>Signing Date: _______________</p>
+  <p>Signing Date: ${esc(v.provider_signed_date)}</p>
+  <p class="sig-provider-note">Signed electronically by ${esc(v.provider_name)} under the U.S. ESIGN Act and UETA.</p>
   <p>Email for Notices: ${esc(v.provider_email)}</p>
 </div>
 

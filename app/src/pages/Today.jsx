@@ -78,12 +78,17 @@ export default function Today() {
         .order('brand_id')
       if (drErr) throw drErr
 
-      // 3. Brands with at least one active retainer (for empty-rounds fallback)
+      // 3. Brands with at least one active, *in-service* retainer (for empty-rounds fallback).
+      // Status='active' gets set when the contract is signed but the retainer
+      // may not be in-service yet (start_date in the future). Filter those out
+      // so we don't surface rounds on Today before the engagement actually begins.
+      // NULL start_date is treated as already-running (legacy retainers).
       const { data: retProjects, error: retErr } = await supabase
         .from('projects')
-        .select('id, brand_id, type, status, brands(id, name, color, instagram_url, facebook_url, gbp_url), retainer_services(id, name, description, cadence, active, platforms)')
+        .select('id, brand_id, type, status, start_date, brands(id, name, color, instagram_url, facebook_url, gbp_url), retainer_services(id, name, description, cadence, active, platforms)')
         .eq('type', 'retainer')
         .eq('status', 'active')
+        .or(`start_date.is.null,start_date.lte.${today}`)
       if (retErr) throw retErr
 
       // Collapse by brand

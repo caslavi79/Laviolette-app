@@ -285,8 +285,14 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
         <div className="contract-preview">
           <div className="panel-header">
             <span className="eyebrow">Contract content</span>
+            <DownloadDraftButton html={contract.filled_html} name={contract.name} />
           </div>
-          <div className="contract-preview-body" dangerouslySetInnerHTML={{ __html: contract.filled_html }} />
+          <iframe
+            className="contract-preview-body"
+            title="Contract content"
+            sandbox=""
+            srcDoc={contract.filled_html}
+          />
         </div>
       ) : contract.file_path ? (
         <div className="empty-state" style={{ padding: 16 }}>
@@ -299,6 +305,36 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
         </div>
       )}
     </div>
+  )
+}
+
+function DownloadDraftButton({ html, name }) {
+  const handle = () => {
+    const w = window.open('', '_blank')
+    if (!w) {
+      alert('Popup blocked. Please allow popups for app.laviolette.io to download contracts.')
+      return
+    }
+    const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]))
+    const safeName = esc(name || 'Contract')
+    w.document.open()
+    w.document.write(
+      '<!DOCTYPE html>' +
+      '<html lang="en"><head><meta charset="UTF-8"><title>' + safeName + '</title>' +
+      '<style>@page{margin:0.75in}body{margin:0;padding:0;font-family:Times New Roman,Georgia,serif}@media print{.__print-hint{display:none!important}}.__print-hint{position:fixed;top:0;left:0;right:0;background:#12100D;color:#F4F0E8;padding:10px 14px;text-align:center;font-family:-apple-system,Helvetica,sans-serif;font-size:13px;z-index:9999;letter-spacing:0.02em}.__print-hint button{background:#B8845A;color:#12100D;border:none;padding:6px 14px;margin-left:12px;border-radius:3px;font-weight:600;cursor:pointer;font-size:12px}</style>' +
+      '</head><body>' +
+      '<div class="__print-hint">Use <strong>File &rarr; Print &rarr; Save as PDF</strong>, or wait for the print dialog. <button onclick="window.print()">Print now</button></div>' +
+      '<div style="height:56px"></div>' +
+      html +
+      '<scr' + 'ipt>setTimeout(function(){window.print()},700);</scr' + 'ipt>' +
+      '</body></html>'
+    )
+    w.document.close()
+  }
+  return (
+    <button className="btn btn-link" onClick={handle} title="Opens a new tab with the contract and triggers the print dialog. Choose 'Save as PDF' as the destination.">
+      &darr; Download (Print to PDF)
+    </button>
   )
 }
 

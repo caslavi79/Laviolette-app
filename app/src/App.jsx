@@ -9,6 +9,7 @@ import Contacts from './pages/Contacts'
 import Projects from './pages/Projects'
 import Money from './pages/Money'
 import Contracts from './pages/Contracts'
+import Notifications from './pages/Notifications'
 import Sign from './pages/Sign'
 import SetupSuccess from './pages/SetupSuccess'
 import SetupCancel from './pages/SetupCancel'
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="projects" element={<ErrorBoundary><Projects /></ErrorBoundary>} />
           <Route path="money" element={<ErrorBoundary><Money /></ErrorBoundary>} />
           <Route path="contracts" element={<ErrorBoundary><Contracts /></ErrorBoundary>} />
+          <Route path="notifications" element={<ErrorBoundary><Notifications /></ErrorBoundary>} />
           <Route
             path="*"
             element={
