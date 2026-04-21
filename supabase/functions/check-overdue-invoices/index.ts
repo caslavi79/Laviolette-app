@@ -42,23 +42,49 @@ Deno.serve(async (req: Request) => {
   const today = todayMT()
   const fiveBD = businessDaysAgo(5)
 
-  // Transition pending/sent → overdue (sent invoices that pass due_date
-  // without being paid should also be flagged — fixes the sent→pending gap)
-  const { data: flipped, error: e1 } = await admin
+  // Identify candidate invoices for the overdue-transition, scoped to
+  // projects that are still billable. Cancelled/complete project
+  // invoices shouldn't flip to 'overdue' — the work ended; flagging
+  // them overdue would imply Case is chasing payment on engagements
+  // that never ran to term. They'd need a void instead.
+  const { data: overdueCandidates, error: e0 } = await admin
     .from('invoices')
-    .update({ status: 'overdue', updated_at: new Date().toISOString() })
+    .select('id, projects(status)')
     .in('status', ['pending', 'sent'])
     .lt('due_date', today)
-    .select('id')
+  const overdueIds = (overdueCandidates || [])
+    .filter((r: any) => !['cancelled','complete'].includes(r.projects?.status))
+    .map((r: any) => r.id)
 
-  // Late-fee flag for overdue invoices past 5 business days
-  const { data: feeFlagged, error: e2 } = await admin
+  const { data: flipped, error: e1 } = overdueIds.length === 0
+    ? { data: [], error: null }
+    : await admin
+        .from('invoices')
+        .update({ status: 'overdue', updated_at: new Date().toISOString() })
+        .in('id', overdueIds)
+        .select('id')
+
+  // Same guard for the 5-business-day late-fee flag.
+  const { data: feeCandidates, error: e0b } = await admin
     .from('invoices')
-    .update({ late_fee_applied: true, updated_at: new Date().toISOString() })
+    .select('id, projects(status)')
     .eq('status', 'overdue')
     .eq('late_fee_applied', false)
     .lt('due_date', fiveBD)
-    .select('id')
+  const feeIds = (feeCandidates || [])
+    .filter((r: any) => !['cancelled','complete'].includes(r.projects?.status))
+    .map((r: any) => r.id)
+
+  const { data: feeFlagged, error: e2 } = feeIds.length === 0
+    ? { data: [], error: null }
+    : await admin
+        .from('invoices')
+        .update({ late_fee_applied: true, updated_at: new Date().toISOString() })
+        .in('id', feeIds)
+        .select('id')
+
+  if (e0) console.error('check-overdue-invoices overdue candidate read error:', e0.message)
+  if (e0b) console.error('check-overdue-invoices late-fee candidate read error:', e0b.message)
 
   if (e1) console.error('check-overdue-invoices overdue transition error:', e1.message)
   if (e2) console.error('check-overdue-invoices late fee flag error:', e2.message)

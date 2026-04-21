@@ -215,9 +215,10 @@ Deno.serve(async (req: Request) => {
   const { data: candidates, error } = await admin
     .from('invoices')
     .select(
-      'id, invoice_number, total, due_date, description, stripe_payment_intent_id, stripe_invoice_id, status, client_id, brand_id, ' +
+      'id, invoice_number, total, due_date, description, stripe_payment_intent_id, stripe_invoice_id, status, client_id, brand_id, project_id, ' +
       'clients!inner(id, legal_name, name, stripe_customer_id, bank_info_on_file, billing_email), ' +
-      'brands(name)'
+      'brands(name), ' +
+      'projects(id, status)'
     )
     .in('status', ['draft', 'pending'])
     .is('stripe_payment_intent_id', null)
@@ -247,6 +248,19 @@ Deno.serve(async (req: Request) => {
 
   for (const inv of candidates as InvoiceRow[]) {
     const invNum = inv.invoice_number
+    // Safety gate: never charge an invoice whose project has been
+    // cancelled or marked complete. A cancelled-project invoice with
+    // a live due_date would otherwise ACH-debit the client for work
+    // that was already ended. Keep draft/active/paused eligible —
+    // those are still billable states per the existing flow.
+    const projStatus = (inv as any).projects?.status
+    if (projStatus === 'cancelled' || projStatus === 'complete') {
+      skipped.push({
+        invoice_number: invNum,
+        reason: `project.status='${projStatus}' — not charging cancelled/complete work`,
+      })
+      continue
+    }
     let fireInfo: ReturnType<typeof computeFireDate>
     try {
       fireInfo = computeFireDate(inv.due_date)

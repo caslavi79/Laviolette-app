@@ -156,14 +156,23 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Lead follow-up today
+  // Lead follow-up today. Excludes leads that have already converted —
+  // same contract-aware predicate as v_stale_leads (migration
+  // 20260421000002). Without this, Viktoriia would re-surface as
+  // "follow up today" tomorrow morning because lead_details.next_follow_up
+  // is frozen at her pre-signing discovery-call date.
   const { data: leads } = await supabase
     .from('lead_details')
-    .select('id, next_follow_up, next_step, contacts(name)')
+    .select('id, next_follow_up, next_step, contact_id, contacts!inner(name, clients(contracts(status)))')
     .eq('next_follow_up', today)
     .neq('stage', 'lost')
   for (const l of leads || []) {
-    const name = (l as any).contacts?.name || 'lead'
+    const contact = (l as any).contacts
+    const hasConvertedContract = (contact?.clients || []).some((cl: any) =>
+      (cl?.contracts || []).some((ct: any) => !['draft','sent'].includes(ct.status))
+    )
+    if (hasConvertedContract) continue
+    const name = contact?.name || 'lead'
     lines.push({
       color: '#7A8490',
       emoji: '○',

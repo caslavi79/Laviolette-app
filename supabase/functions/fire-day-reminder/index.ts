@@ -59,7 +59,8 @@ Deno.serve(async (req: Request) => {
     .select(
       'id, invoice_number, total, due_date, ' +
       'clients(legal_name, name, stripe_customer_id, bank_info_on_file), ' +
-      'brands(name)'
+      'brands(name), ' +
+      'projects(status)'
     )
     .in('status', ['draft', 'pending'])
     .is('stripe_payment_intent_id', null)
@@ -79,12 +80,17 @@ Deno.serve(async (req: Request) => {
     due_date: string
     clients?: { legal_name?: string; name?: string; stripe_customer_id?: string | null; bank_info_on_file?: boolean } | null
     brands?: { name?: string | null } | null
+    projects?: { status?: string } | null
   }
 
   const eligible: Array<{ invoice_id: string; invoice_number: string; client_name: string; brand_name: string; amount: number | string; due_date: string }> = []
   const blocked: Array<{ invoice_number: string; client_name: string; amount: number | string; reason: string }> = []
 
   for (const inv of (candidates || []) as CandidateRow[]) {
+    // Silently skip invoices on cancelled/complete projects. The auto-push
+    // cron's parallel skip will already block a charge; suppressing here
+    // keeps Case's morning digest from alerting on work that's already ended.
+    if (inv.projects?.status === 'cancelled' || inv.projects?.status === 'complete') continue
     let fireDate: string
     try {
       fireDate = computeFireDate(inv.due_date).fireDate
