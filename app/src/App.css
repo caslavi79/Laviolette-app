@@ -2936,6 +2936,7 @@ body.modal-open { overflow: hidden; }
   }
   .notification-date, .notification-resolution { font-size: 11px; }
 }
+
 /* =========================================================
    work_log — Today widget, Activity tab, brand recent activity
    ========================================================= */
@@ -3143,6 +3144,7 @@ body.modal-open { overflow: hidden; }
   text-transform: uppercase;
   color: var(--text-lo);
 }
+
 /* =========================================================
    monthly_recaps — tab + preview + status tones
    ========================================================= */
@@ -3423,4 +3425,23 @@ body.modal-open { overflow: hidden; }
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--text-lo);
+}
+
+/* Mobile — 7 columns don't fit under 640px. Drop Response + Source
+   first (lowest-signal), then fall back to horizontal scroll. Mirrors
+   the pattern used by .expenses-table. */
+@media (max-width: 640px) {
+  .incidents-table { font-size: 12px; display: block; overflow-x: auto; }
+  .incidents-table th:nth-child(6),
+  .incidents-table td:nth-child(6),   /* Response */
+  .incidents-table th:nth-child(7),
+  .incidents-table td:nth-child(7)    /* Source */
+    { display: none; }
+}
+
+/* Activity tab — subtle "×N" count badge on entries */
+.activity-entry-count {
+  color: var(--text-lo);
+  font-size: 12px;
+  font-weight: 500;
 }

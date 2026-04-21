@@ -653,7 +653,11 @@ export default function Today() {
             const sub = isOverdue
               ? `Overdue follow-up — was due ${fmtDate(s.next_touch_at, { month: 'short', day: 'numeric' })}`
               : (s.days_since_contact == null
-                  ? 'No contact logged'
+                  // days_since_contact is NULL only when last_contacted_at
+                  // IS NULL in v_stale_leads — i.e. this lead has never
+                  // been touched. "Never contacted" reads as a real
+                  // status rather than a missing-data bug.
+                  ? 'Never contacted'
                   : `${s.days_since_contact} day${s.days_since_contact === 1 ? '' : 's'} since contact`)
             return (
               <Link
