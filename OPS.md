@@ -182,6 +182,25 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   `lead_details.next_follow_up` / `lead_details.stage`. Contacts +
   EditContactModal + Today stale widget all rewired. `contacts.status`
   (party_status enum) stays as-is — it's orthogonal.
+- ✅ **Invoice "processing" UI pseudo-status** (2026-04-21 extended,
+  commit `c444014`). Money.jsx now derives a 3-state display
+  (`pending` / `processing` / `paid`) from the tuple
+  `(invoice.status, stripe_payment_intent_id, stripe_invoice_id)`.
+  `processing` = status='pending' AND PI attached. Copper badge,
+  system-state message replaces raw `inv.notes` on expand when a
+  charge is in flight (Nicole and Viktoriia were showing a stale
+  pre-charge "auto-push will fire" note post-charge, reading as a
+  duplicate-charge threat). Pure UI derivation — DB enum untouched,
+  edge functions untouched. See commit `c444014` for full derivation
+  logic.
+- 🟡 **Viktoriia Jones onboarding complete 2026-04-21 extended.**
+  Stripe customer `cus_UNTJyt4qyKv2Wm`, contract
+  `f4283b8c-1292-458a-a64e-d9c60e2a4400` signed 18:00:19 UTC, invoice
+  `LV-2026-006` ($1,700) auto-sent on sign, ACH fired 18:07 UTC via
+  auto-push → PI `pi_3TOiitRzgnRnD0Dt0h8gGu0J` processing on Bank of
+  America ****3777. Settlement ~Apr 23-24. Parallel state to Nicole's
+  LV-2026-005 fired earlier today. Both will flip to PAID via
+  `payment_intent.succeeded` webhook.
 
 ---
 
@@ -726,12 +745,12 @@ single-user app).
 | Unresolved `notification_failures` | 0 |
 | Authenticated screens | 8 (Today, Schedule, Contacts, Projects, Money, Contracts, Notifications, Incidents — added 2026-04-21) |
 | External monitoring | UptimeRobot LIVE 5-min on `/health`, alerts verified end-to-end (2026-04-21) |
-| Pending invoices | 5 (4 Dustin May 1 + Nicole James LV-2026-005 due 2026-04-21) |
-| Stripe customers | 3 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`) |
-| DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead, Viktoriia Jones lead) |
-| Contracts | 4 signed (Dustin) + 1 draft (Exodus) + 1 sent (Nicole, awaiting sign 2026-04-21) |
-| In-flight $1 test debits on Ally ****4271 | 3, metadata cleared, settle ~Apr 20-22, refundable via Stripe Dashboard |
-| Last frontend deploy | 2026-04-21 (audit-fix batch: `index-CvjrX8l7.js` / `index-DXISWbym.css`) |
-| Last edge-function deploy | 2026-04-21 (`health`, `generate-monthly-recaps`, `send-monthly-recap` with audit fixes) |
-| Last DB cleanup | 2026-04-21 (all smoke-test residue from 3a/3b/3c/3e tests removed) |
-| Unpushed local commits on `main` | 10+ (see `git log origin/main..HEAD`). 2026-04-21 extended session shipped lead_details migration (`987ac4b`), contacts stage-pill polish (`b5f9d3c`), invoice-charging email suppression (`2e886c1`), plus the full audit-driven cleanup batch. |
+| Pending invoices | 6 (4 Dustin May 1 + Nicole LV-2026-005 + Viktoriia LV-2026-006 — both LV-006 and LV-005 now status=pending with PI attached, i.e. "processing" in UI) |
+| In-flight ACH | 2 — Nicole `pi_3TOhHzRzgnRnD0Dt0uGb2WtG` and Viktoriia `pi_3TOiitRzgnRnD0Dt0h8gGu0J`, both $1,700 buildouts, settle ~Apr 23-24 |
+| Stripe customers | 4 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`, Viktoriia Jones `cus_UNTJyt4qyKv2Wm`) |
+| DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead→active-in-flight, Viktoriia Jones lead→active-in-flight) |
+| Contracts | 4 signed (Dustin) + 1 draft (Exodus) + **2 signed 2026-04-21 extended** (Nicole, Viktoriia) — both buildouts, Variant C, $1,700 each, ACH fired same day |
+| Last frontend deploy | 2026-04-21 extended: `index-9fOK0ttZ.js` / `index-DXISWbym.css` (Money.jsx "processing" UI-state fix — commit `c444014`) |
+| Last edge-function deploy | 2026-04-21 extended: `bash scripts/deploy-edge.sh` (all 13 deploy-edge-managed functions re-uploaded with `auto-push-invoices` + `create-stripe-invoice` email suppression from commit `2e886c1`). **Note:** deploy-edge.sh covers 18 production functions post-commit `05ff837` but only re-uploads when run; individual function updates can use `npx supabase functions deploy <name> --no-verify-jwt`. |
+| Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
+| Unpushed local commits on `main` | 22+ (see `git log origin/main..HEAD`). Latest: `c444014 fix: surface processing as a distinct UI state for in-flight ACH`. Full chain since `71b5b02` (origin HEAD) — lead_details migration (`987ac4b`), contacts stage-pill polish (`b5f9d3c`), invoice-charging email suppression (`2e886c1`), full audit-driven cleanup batch (11 commits `e9615f8`→`88cb952`), plus today's processing-state UI fix. |
