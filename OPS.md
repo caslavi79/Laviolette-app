@@ -117,38 +117,42 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ---
 
-## Current state (as of 2026-04-17)
+## Current state (as of 2026-04-21)
 
-- ✅ **Database** — 17 tables, 100% COMMENT coverage, RLS on every table,
-  20 migrations applied. Direct-pg connection on port 5432 (pooler 6543
-  is broken — use direct). Migration 16 added `stripe_events_processed`
-  (idempotency). Migration 18 added `notification_failures` (DLQ).
-  Migration 19 added `public.get_last_cron_runs()` (SECURITY DEFINER
-  function for the health endpoint).
+- ✅ **Database** — **25 migrations applied** (20 at 2026-04-17 + 6
+  in 2026-04-21 session: `contacts_lead_tracking`,
+  `contacts_lead_backfill_fix`, `work_log`, `work_log_count_column`,
+  `monthly_recaps`, `health_checks`). RLS on every table. Direct-pg
+  connection on port 5432 (pooler 6543 broken — use direct).
 - ✅ **Auth** — `case.laviolette@gmail.com` exists in Supabase Auth.
   Forgot-password uses Supabase's default email provider (SendGrid).
-- ✅ **Frontend** — live at https://app.laviolette.io. **7 authenticated
-  screens**: Today, Schedule, Contacts, Projects, Money, Contracts,
-  **Notifications** (DLQ UI, added 2026-04-16). Plus 3 public routes:
-  /sign (contract signing), /setup-success, /setup-cancel.
+- ✅ **Frontend** — live at https://app.laviolette.io. **8
+  authenticated screens**: Today, Schedule, Contacts, Projects, Money,
+  Contracts, Notifications, **Incidents** (health history table,
+  added 2026-04-21). Plus 3 public routes: /sign, /setup-success,
+  /setup-cancel.
 - ✅ **Stripe CLI** — `scripts/stripe-setup.js` + static redirect pages
   live at `laviolette.io/setup-success` and `laviolette.io/setup-cancel`.
   CLI installed globally via `brew install stripe/stripe-cli/stripe`;
   `STRIPE_API_KEY=sk_live_...` exported in `~/.zshrc`.
-- ✅ **Edge functions** — **17 deployed** (14 original + `fire-day-reminder` 2026-04-17 +
-  `run-pipeline-test` 2026-04-19 + `send-invoice` 2026-04-20):
-  `stripe-webhook`, `auto-push-invoices`, `create-stripe-invoice`,
-  `create-setup-session`, `contract-send`, `contract-sign`, `generate-retainer-invoices`,
-  `generate-daily-rounds`, `check-overdue-invoices`, `advance-contract-status`,
-  `send-reminders`, `retry-notification`, `send-manual-receipt`, `health`,
-  `fire-day-reminder`, `run-pipeline-test`, `send-invoice`.
+- ✅ **Edge functions** — **19 deployed** (17 at 2026-04-17 + 2 in
+  2026-04-21 session: `generate-monthly-recaps`, `send-monthly-recap`;
+  `health` enhanced with response-body shape + health_checks logging
+  + source detection + holiday-safe MAX_GAP_HOURS).
 - ✅ **Stripe webhook** — live endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`
   at `…/functions/v1/stripe-webhook`, subscribed to **14 events**.
   See "Stripe webhook" section below for the full list + behaviors.
-- ✅ **Cron jobs** — **7 jobs** scheduled + active. DST-corrected on
-  2026-04-17 (`1 5 UTC` → `1 6 UTC` for jobs that must fire past midnight
-  CT in both seasons). Schedule is Central Time to match clients in
-  Austin, TX.
+- ✅ **Cron jobs** — **9 jobs** scheduled + active. +1 in 2026-04-21
+  session: `laviolette_generate_monthly_recaps` at `0 13 1 * *`
+  (08:00 CST / 07:00 CDT on the 1st). All 8 existing jobs untouched.
+  Schedule is Central Time to match clients in Austin, TX.
+- ✅ **External monitoring (UptimeRobot)** — LIVE since 2026-04-21,
+  free tier, 5-minute interval. Pings
+  `https://sukcufgjptllzucbneuj.supabase.co/functions/v1/health`.
+  Alerts to `case.laviolette@gmail.com` (verified end-to-end with a
+  test alert). Public status page:
+  <https://stats.uptimerobot.com/muAd17CfnU>. Setup guide:
+  `docs/MONITORING_SETUP.md`. Runbook: `INCIDENTS.md`.
 - ✅ **Resend** — domain `laviolette.io` verified 2026-04-16. API key
   `RESEND_API_KEY` in `.env.local` + Supabase secret. All client emails
   BCC `case.laviolette@gmail.com`. Failures persist to
@@ -167,14 +171,69 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   Successful payment, Refund, Failed payment, Subscription, Customer update.
   Leave ACH mandate ON (NACHA requires written authorization record).
   All client email touchpoints come from our Resend pipeline.
+- 🟡 **Duplicate lead-tracking columns on `contacts`** — prompt #1
+  (2026-04-21) added `stage` / `lead_source` / `last_contacted_at` /
+  `next_touch_at` / `lead_notes` on `contacts`, not realizing the
+  existing `lead_details` table already modeled the same thing (enum
+  columns: `stage`, `source`, `last_contact_date`, `next_follow_up`,
+  `notes`). Cleanup queued for next session. See HANDOFF.md
+  "Known architectural issue" section.
+
+---
+
+## Monitoring
+
+- **UptimeRobot free tier** pings
+  `https://sukcufgjptllzucbneuj.supabase.co/functions/v1/health`
+  every 5 minutes with a 30-second timeout and a 2-failed-check
+  confirmation window.
+- Alert contact: `case.laviolette@gmail.com`. Gmail push
+  notifications must be ON on your phone — the alert email IS the
+  page. Setup per `docs/MONITORING_SETUP.md`.
+- `/health` response includes `message` field that surfaces in the
+  UptimeRobot alert subject preview and makes the alert actionable
+  without opening the app (e.g. "Stale:
+  laviolette_auto_push_invoices last ran 14h ago.").
+- Every `/health` probe is logged to `public.health_checks`
+  (fire-and-forget; a logging failure never flips a healthy 200 →
+  503). Time-series visible at `/incidents` (authenticated). Rolling
+  7-day uptime on the Today screen's System Health widget.
+- Incident response: `INCIDENTS.md` at repo root. Per-cron recovery
+  commands, false-positive notes, Supabase-down playbook.
+- **Public status page**: <https://stats.uptimerobot.com/muAd17CfnU>
+  (read-only; link this on the marketing site if ever relevant).
 
 ---
 
 ## Edge functions
 
-All 14 are in `supabase/functions/`. Shared helpers in `_shared/`
-(`client-emails.ts` — email templates + `sendClientEmail` helper + 11 internal
-notification kinds; `business-days.ts` — federal holiday + NACHA business-day math).
+All 19 are in `supabase/functions/`. Shared helpers in `_shared/`:
+- `client-emails.ts` — email templates + `sendClientEmail` helper + 13
+  internal notification kinds.
+- `business-days.ts` — federal holiday + NACHA business-day math
+  (used by auto-push fire-date calculation).
+- `recap-template.ts` — monthly recap aggregator + cream/copper client-
+  facing HTML + dark HQ drafts-ready HTML + `sanitizeHtmlForSend`
+  allow-list (added 2026-04-21).
+
+**Recap edge functions (added 2026-04-21):**
+
+| Function | Trigger | Behavior |
+|---|---|---|
+| `generate-monthly-recaps` | pg_cron `?key=<secret>` on the 1st + optional bearer-auth `?overwrite_id=<id>` for UI-driven regenerate | For each active retainer project, aggregates previous month's `work_log` entries (DST-aware CT month boundaries via `ctMidnightToUtcIso`) and inserts a `monthly_recaps` row with status='draft'. UNIQUE(project_id, month) makes re-runs idempotent. Zero-activity retainers get a deduped DLQ audit alert. Fires one HQ "N drafts ready" email per run. |
+| `send-monthly-recap` | Bearer token from the Recaps tab | Sends a draft/approved recap via Resend. BCC Case. 409 on already-sent. On success flips status='sent' + sent_at + sent_to_email. Optional `override_email` body field sends to a test address WITHOUT flipping status — logged as an audit row with context prefix `recap-test-send:<recap_id>` for queryability. |
+
+**Health edge function (enhanced 2026-04-21):**
+
+`/health` response now includes `ok`, `checked_at`, `stale_crons`,
+`unresolved_dlq_count`, `deploy_sha` (from `DEPLOY_SHA` env, defaults
+`unknown`), `message` (human-readable actionable string for alert
+subject previews), and `response_ms`. Every probe fires-and-forgets
+a row into `health_checks` (wrapped in try/catch — logging failures
+never flip 200 → 503). User-Agent with `uptimerobot` substring marks
+`source='uptimerobot'`. `MAX_GAP_HOURS` holiday-safe: weekday-only
+`fire_day_reminder` is 97h (Fri → Tue gap on federal-holiday
+Mondays).
 
 ### Stripe webhook (`stripe-webhook`)
 
@@ -218,6 +277,7 @@ Constant-time comparison would be ideal but `!==` is used (low-risk given key ro
 | `laviolette_auto_push_invoices` | `5 21 * * *` | 15:05 / 16:05 | POST `/auto-push-invoices?key=` |
 | `laviolette_auto_push_invoices_retry` | `5 22 * * *` | 16:05 / 17:05 | POST `/auto-push-invoices?key=` |
 | `laviolette_retainer_invoices` | `1 6 1 * *` | 00:01 / 01:01 on 1st | POST `/generate-retainer-invoices?key=` |
+| `laviolette_generate_monthly_recaps` | `0 13 1 * *` | 08:00 / 07:00 on 1st | POST `/generate-monthly-recaps?key=` |
 
 `1 6 UTC` vs `1 5 UTC`: the former fires past midnight CT in BOTH CST winter
 (00:01 local) and CDT summer (01:01 local). The prior `1 5 UTC` fired at 23:01
@@ -639,7 +699,9 @@ single-user app).
 - PWA install on iPhone home screen (add service worker)
 - Supabase Realtime for live-updating Today screen
 - Client-facing invoice portal (view invoices, self-serve bank update)
-- Lead pipeline UI (`lead_details` table exists but no screen — deferred pending Case's need)
+- Lead pipeline UI (`lead_details` table exists but no screen — **partial
+  duplication landed 2026-04-21 on `contacts.*` columns; refactor-to-
+  `lead_details` is the queued FIRST prompt for next session**)
 - Server-side PDF rendering for signed contracts (currently browser print-to-PDF works fine)
 - Tax export CSV (Money page mentions it but no UI — defer until first year-end)
 
@@ -649,16 +711,19 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 20 |
-| Edge functions deployed | 17 (added `run-pipeline-test` 2026-04-19, `send-invoice` + modified `contract-sign` 2026-04-20) |
+| Migrations applied | 25 |
+| Edge functions deployed | 19 (added `generate-monthly-recaps`, `send-monthly-recap` 2026-04-21; enhanced `health`) |
 | Webhook events subscribed | 14 |
-| Cron jobs active | 8 (added `laviolette_fire_day_reminder`) |
+| Cron jobs active | 9 (added `laviolette_generate_monthly_recaps` 2026-04-21) |
 | Unresolved `notification_failures` | 0 |
+| Authenticated screens | 8 (Today, Schedule, Contacts, Projects, Money, Contracts, Notifications, Incidents — added 2026-04-21) |
+| External monitoring | UptimeRobot LIVE 5-min on `/health`, alerts verified end-to-end (2026-04-21) |
 | Pending invoices | 5 (4 Dustin May 1 + Nicole James LV-2026-005 due 2026-04-21) |
 | Stripe customers | 3 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`) |
 | DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead, Viktoriia Jones lead) |
 | Contracts | 4 signed (Dustin) + 1 draft (Exodus) + 1 sent (Nicole, awaiting sign 2026-04-21) |
 | In-flight $1 test debits on Ally ****4271 | 3, metadata cleared, settle ~Apr 20-22, refundable via Stripe Dashboard |
-| Last frontend deploy | 2026-04-20 (Contracts page: Download (Print to PDF) button on draft contracts) |
-| Last edge-function deploy | 2026-04-20 (`send-invoice` + modified `contract-sign` for auto-fire on sign) |
-| Last DB cleanup | 2026-04-17 (all test records removed in one transaction) |
+| Last frontend deploy | 2026-04-21 (audit-fix batch: `index-CvjrX8l7.js` / `index-DXISWbym.css`) |
+| Last edge-function deploy | 2026-04-21 (`health`, `generate-monthly-recaps`, `send-monthly-recap` with audit fixes) |
+| Last DB cleanup | 2026-04-21 (all smoke-test residue from 3a/3b/3c/3e tests removed) |
+| Unpushed local commits on `main` | **6** (5 feat/fix + `545a3d3 docs`). Do NOT push until the lead_details cleanup prompt ships next session. |

@@ -1,5 +1,12 @@
 # Incident Response
 
+> **STATUS: UptimeRobot is LIVE as of 2026-04-21.** Monitor pings
+> `/health` every 5 minutes. Email alert flow verified end-to-end
+> (test alert arrived at `case.laviolette@gmail.com` within ~30
+> seconds). Public status page:
+> <https://stats.uptimerobot.com/muAd17CfnU>. Setup details in
+> `docs/MONITORING_SETUP.md`.
+
 ## When you get a UptimeRobot alert email
 
 An alert email from UptimeRobot means `/health` returned 503 or timed out.
