@@ -11,10 +11,6 @@
 
 import Stripe from 'https://esm.sh/stripe@17?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import {
-  sendClientEmail,
-  buildInvoiceChargingEmail,
-} from '../_shared/client-emails.ts'
 
 function env(key: string): string {
   const v = Deno.env.get(key)
@@ -26,11 +22,6 @@ const SUPABASE_URL = env('SUPABASE_URL')
 const SUPABASE_ANON_KEY = env('SUPABASE_ANON_KEY')
 const SUPABASE_SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY')
 const STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY')
-const RESEND_API_KEY = env('RESEND_API_KEY')
-const BRAND_NAME = Deno.env.get('BRAND_NAME') || 'Laviolette LLC'
-const BRAND_FROM_EMAIL = Deno.env.get('BRAND_FROM_EMAIL') || 'noreply@laviolette.io'
-const BRAND_REPLY_TO = Deno.env.get('BRAND_REPLY_TO') || 'case.laviolette@gmail.com'
-const CASE_NOTIFY_EMAIL = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.com'
 
 const stripe = new Stripe(STRIPE_SECRET_KEY)
 
@@ -180,48 +171,10 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Send invoice-charging email to the client so they see a debit coming.
-    // Non-blocking — email failure doesn't reverse the Stripe charge. Persists
-    // to notification_failures on failure so Case can retry/dismiss in-app.
-    const toEmail = inv.clients?.billing_email as string | null | undefined
-    if (!toEmail) {
-      console.warn(`[create-stripe-invoice] no billing_email on client for ${inv.invoice_number}; skipping invoice-charging email`)
-    } else {
-      const brandName = (inv.brands as { name?: string } | undefined)?.name
-        || inv.clients?.legal_name || inv.clients?.name || 'your account'
-      const clientName = inv.clients?.legal_name || inv.clients?.name || 'there'
-      const { subject: emailSubject, html: emailHtml } = buildInvoiceChargingEmail({
-        clientName,
-        brandName,
-        invoiceNumber: inv.invoice_number,
-        description: inv.description || '',
-        amount: inv.total,
-        dueDate: inv.due_date,
-        fireDate: new Date().toISOString().slice(0, 10),
-      })
-      const emailRes = await sendClientEmail({
-        apiKey: RESEND_API_KEY,
-        from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
-        replyTo: BRAND_REPLY_TO,
-        to: toEmail,
-        bcc: CASE_NOTIFY_EMAIL,
-        subject: emailSubject,
-        html: emailHtml,
-        context: `create-stripe-invoice:${inv.invoice_number}`,
-      })
-      if (!emailRes.ok) {
-        console.error(`[create-stripe-invoice] invoice-charging email failed for ${inv.invoice_number}: ${emailRes.error}`)
-        try {
-          await admin.from('notification_failures').insert({
-            kind: 'client', context: `create-stripe-invoice:${inv.invoice_number}`,
-            subject: emailSubject, to_email: toEmail, error: emailRes.error,
-            payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html: emailHtml },
-          })
-        } catch (e) {
-          console.error(`[create-stripe-invoice] failed to persist email failure: ${(e as Error).message}`)
-        }
-      }
-    }
+    // Charge fires silently. The client already received the invoice document
+    // at contract-sign via send-invoice; an additional "charge starting" email
+    // reads as a duplicate bill. They'll get the paid receipt on settlement
+    // via the payment_intent.succeeded webhook.
 
     return json({
       success: true,

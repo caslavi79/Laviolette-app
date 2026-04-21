@@ -24,7 +24,6 @@ import {
 } from '../_shared/business-days.ts'
 import {
   sendClientEmail,
-  buildInvoiceChargingEmail,
   buildInternalNotification,
 } from '../_shared/client-emails.ts'
 
@@ -39,9 +38,7 @@ const SUPABASE_SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY')
 const STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY')
 const SECRET = env('REMINDERS_SECRET')
 const RESEND_API_KEY = env('RESEND_API_KEY')
-const BRAND_NAME = Deno.env.get('BRAND_NAME') || 'Laviolette LLC'
 const BRAND_FROM_EMAIL = Deno.env.get('BRAND_FROM_EMAIL') || 'noreply@laviolette.io'
-const BRAND_REPLY_TO = Deno.env.get('BRAND_REPLY_TO') || 'case.laviolette@gmail.com'
 const CASE_NOTIFY_EMAIL = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.com'
 const APP_URL = Deno.env.get('APP_URL') || 'https://app.laviolette.io'
 
@@ -316,51 +313,10 @@ Deno.serve(async (req: Request) => {
         expected_land_date: fireInfo.actualLandDate,
         due_is_business_day: fireInfo.dueIsBusinessDay,
       })
-
-      // Notify the client that an ACH charge is in flight. Non-blocking —
-      // a failed email does NOT reverse the charge (already committed to Stripe).
-      const toEmail = inv.clients?.billing_email
-      if (!toEmail) {
-        warnings.push({
-          invoice_number: invNum,
-          warning: `No billing_email on client — skipped invoice-charging email notification.`,
-        })
-      } else {
-        const { subject, html } = buildInvoiceChargingEmail({
-          clientName: inv.clients?.legal_name || inv.clients?.name || 'there',
-          brandName: inv.brands?.name || inv.clients?.legal_name || inv.clients?.name || 'your account',
-          invoiceNumber: invNum,
-          description: inv.description || '',
-          amount: inv.total,
-          dueDate: inv.due_date,
-          fireDate: today,
-        })
-        const emailRes = await sendClientEmail({
-          apiKey: RESEND_API_KEY,
-          from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
-          replyTo: BRAND_REPLY_TO,
-          to: toEmail,
-          bcc: CASE_NOTIFY_EMAIL,
-          subject,
-          html,
-          context: `auto-push-invoices:${invNum}`,
-        })
-        if (!emailRes.ok) {
-          warnings.push({
-            invoice_number: invNum,
-            warning: `Charge succeeded but invoice-email failed: ${emailRes.error}`,
-          })
-          try {
-            await admin.from('notification_failures').insert({
-              kind: 'client', context: `auto-push-invoices:${invNum}`,
-              subject, to_email: toEmail, error: emailRes.error,
-              payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html },
-            })
-          } catch (e) {
-            console.error(`[auto-push-invoices:${invNum}] failed to persist failure: ${(e as Error).message}`)
-          }
-        }
-      }
+      // Charge fires silently. The client already received the invoice document
+      // at contract-sign via send-invoice; an additional "charge starting" email
+      // reads as a duplicate bill. They'll get the paid receipt on settlement
+      // via the payment_intent.succeeded webhook.
     } catch (e) {
       errors.push({ invoice_number: invNum, error: (e as Error).message })
     }
