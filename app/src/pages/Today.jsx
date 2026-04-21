@@ -2,6 +2,21 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtDate, fmtMoneyShort, daysUntil, COLORS } from '../lib/format'
+import LogWorkModal from '../components/forms/LogWorkModal'
+
+/* Returns {startUtcIso, endUtcIso} for "today" in America/Chicago — so the
+ * Today screen's "Logged today" tally rolls over at midnight CT regardless
+ * of where Case's phone thinks it is. */
+function ctTodayBoundsUtcIso() {
+  const now = new Date()
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(now)
+  const tzParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', timeZoneName: 'short' }).formatToParts(now)
+  const tzName = tzParts.find((p) => p.type === 'timeZoneName')?.value
+  const offset = tzName === 'CDT' ? '-05:00' : '-06:00'
+  const startUtc = new Date(`${dateStr}T00:00:00${offset}`)
+  const endUtc = new Date(startUtc.getTime() + 24 * 3600_000)
+  return { startUtcIso: startUtc.toISOString(), endUtcIso: endUtc.toISOString() }
+}
 
 /* Map of retainer_service keywords → platform list.
  * Used as a fallback when a brand has active retainers but no daily_rounds
@@ -47,6 +62,9 @@ export default function Today() {
   const [deliverables, setDeliverables] = useState([]) // in-progress deliverables for today's brand
   const [alerts, setAlerts] = useState([])
   const [staleLeads, setStaleLeads] = useState([])
+  const [todaysWork, setTodaysWork] = useState([])
+  const [workOpen, setWorkOpen] = useState(false)
+  const [logModalOpen, setLogModalOpen] = useState(false)
   const [err, setErr] = useState('')
   const saveTimers = useRef({})
 
@@ -220,6 +238,21 @@ export default function Today() {
         .order('days_since_contact', { ascending: false, nullsFirst: true })
       setStaleLeads(staleRows || [])
 
+      // Today's work_log entries (CT day boundary so the tally is correct
+      // regardless of browser local time).
+      const { startUtcIso, endUtcIso } = ctTodayBoundsUtcIso()
+      const { data: workRows } = await supabase
+        .from('work_log')
+        .select(`
+          id, title, performed_at, brand_id,
+          brands ( id, name, color, projects ( id, type ) ),
+          retainer_services ( id, name )
+        `)
+        .gte('performed_at', startUtcIso)
+        .lt('performed_at', endUtcIso)
+        .order('performed_at', { ascending: false })
+      setTodaysWork(workRows || [])
+
       setSchedule(todaysSchedule)
       setRounds(drData || [])
       setRetainerBrands(retainerBrandList)
@@ -361,6 +394,52 @@ export default function Today() {
 
       {err && <div className="login-error" style={{ marginBottom: 16 }}>{err}</div>}
 
+      {/* Log work */}
+      <section className="log-work-panel">
+        <div className="log-work-row">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setLogModalOpen(true)}
+          >
+            + Log work
+          </button>
+          <button
+            type="button"
+            className="log-work-tally"
+            onClick={() => setWorkOpen((o) => !o)}
+            disabled={todaysWork.length === 0}
+            aria-expanded={workOpen}
+          >
+            Logged today: {todaysWork.length} item{todaysWork.length === 1 ? '' : 's'}
+            {todaysWork.length > 0 && <span className="log-work-chev">{workOpen ? '▾' : '▸'}</span>}
+          </button>
+        </div>
+        {workOpen && todaysWork.length > 0 && (
+          <ul className="log-work-list">
+            {todaysWork.map((e) => {
+              const retainer = (e.brands?.projects || []).find((p) => p.type === 'retainer')
+              const href = retainer ? `/projects?selected=${retainer.id}&tab=activity` : null
+              const svcName = e.retainer_services?.name || 'General'
+              const content = (
+                <>
+                  <span className="log-work-swatch" style={{ background: e.brands?.color || 'var(--border)' }} />
+                  <span className="log-work-title">{e.title}</span>
+                  <span className="log-work-meta">{e.brands?.name} · {svcName}</span>
+                </>
+              )
+              return (
+                <li key={e.id} className="log-work-item">
+                  {href
+                    ? <Link to={href} className="log-work-item-link">{content}</Link>
+                    : <span className="log-work-item-static">{content}</span>}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
       {/* Daily rounds */}
       <section className="rounds-panel">
         <div className="panel-header">
@@ -457,6 +536,13 @@ export default function Today() {
             </div>
           )}
         </section>
+      )}
+
+      {logModalOpen && (
+        <LogWorkModal
+          onClose={() => setLogModalOpen(false)}
+          onSaved={() => loadAll()}
+        />
       )}
 
       {/* Alerts */}

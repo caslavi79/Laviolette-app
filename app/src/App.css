@@ -2936,3 +2936,210 @@ body.modal-open { overflow: hidden; }
   }
   .notification-date, .notification-resolution { font-size: 11px; }
 }
+/* =========================================================
+   work_log — Today widget, Activity tab, brand recent activity
+   ========================================================= */
+
+/* Today — "Log work" quick-action widget */
+.log-work-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.log-work-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.log-work-tally {
+  background: transparent;
+  border: 0;
+  color: var(--text-md);
+  font-family: var(--label);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.log-work-tally:hover:not(:disabled) { color: var(--ivory); }
+.log-work-tally:disabled { cursor: default; opacity: 0.75; }
+.log-work-chev { color: var(--copper); }
+.log-work-list {
+  list-style: none;
+  padding: 10px 0 0;
+  margin: 10px 0 0;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.log-work-item { margin: 0; }
+.log-work-item-link, .log-work-item-static {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-1);
+  text-decoration: none;
+  color: inherit;
+  font-size: 14px;
+}
+.log-work-item-link:hover { background: var(--surface-2); }
+.log-work-swatch {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.log-work-title {
+  flex: 1;
+  color: var(--ivory);
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.log-work-meta {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  flex-shrink: 0;
+}
+
+/* Projects — Activity tab */
+.activity-tab { margin-top: 12px; }
+.activity-month { margin-top: 20px; }
+.activity-month:first-child { margin-top: 8px; }
+.activity-month-header {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ivory);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-service-group { margin-top: 12px; }
+.activity-service-label {
+  margin-bottom: 6px;
+  color: var(--copper);
+}
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.activity-entry {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  overflow: hidden;
+}
+.activity-entry.open { border-color: var(--copper-dim); }
+.activity-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  color: var(--ivory);
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+.activity-entry-head:hover { background: var(--surface-2); }
+.activity-entry-title {
+  flex: 1;
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.activity-entry-meta {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.activity-entry-link-icon { color: var(--copper); font-size: 12px; }
+.activity-entry-preview {
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--text-md);
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.activity-entry-body { padding: 0 12px 12px; }
+.activity-entry-notes {
+  font-family: var(--body);
+  font-size: 13px;
+  color: var(--text-md);
+  white-space: pre-wrap;
+  margin: 6px 0;
+  background: transparent;
+}
+.activity-entry-link {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--copper);
+  word-break: break-all;
+}
+
+/* Contacts — BrandCard recent activity */
+.brand-activity {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.brand-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.brand-activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.brand-activity-row {
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  padding: 3px 0;
+}
+.brand-activity-date {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+.brand-activity-title {
+  color: var(--ivory);
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.brand-activity-svc {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtMoneyShort, fmtDate, badgeStyle, COLORS } from '../lib/format'
 import EditContactModal from '../components/forms/EditContactModal'
@@ -141,7 +141,7 @@ export default function Contacts() {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
   const [selectedContactId, setSelectedContactId] = useState(null)
-  const [financials, setFinancials] = useState({ byClient: new Map(), byBrand: new Map(), allInvoices: [] })
+  const [financials, setFinancials] = useState({ byClient: new Map(), byBrand: new Map(), allInvoices: [], workByBrand: new Map(), retainerProjectByBrand: new Map() })
   const [modalState, setModalState] = useState(null) // { kind, data }
   const [bankLink, setBankLink] = useState(null)     // { url, client_name } — populated by Send Bank Link
   const [bankBusy, setBankBusy] = useState(false)
@@ -176,10 +176,17 @@ export default function Contacts() {
   }, [])
 
   const loadFinancials = useCallback(async () => {
-    // Pull invoice rows (full) + project totals per brand.
-    const [invRes, projRes] = await Promise.all([
+    // Pull invoice rows (full) + project totals per brand + recent work_log per brand.
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString()
+    const [invRes, projRes, workRes] = await Promise.all([
       supabase.from('invoices').select('id, client_id, total, paid_amount, status, due_date, stripe_invoice_id, stripe_payment_intent_id, invoice_number'),
-      supabase.from('projects').select('brand_id, type, total_fee, status'),
+      supabase.from('projects').select('id, brand_id, type, total_fee, status'),
+      supabase
+        .from('work_log')
+        .select('id, brand_id, service_id, title, notes, link_url, performed_at, retainer_services (name)')
+        .gte('performed_at', thirtyDaysAgo)
+        .order('performed_at', { ascending: false })
+        .limit(400),
     ])
     if (invRes.error) { setErr(invRes.error.message); return }
     if (projRes.error) { setErr(projRes.error.message); return }
@@ -198,13 +205,22 @@ export default function Contacts() {
       byClient.set(i.client_id, entry)
     }
     const byBrand = new Map()
+    const retainerProjectByBrand = new Map()
     for (const p of projRes.data || []) {
       const entry = byBrand.get(p.brand_id) || { buildoutTotal: 0, retainerMonthly: 0 }
       if (p.type === 'retainer' && p.status === 'active') entry.retainerMonthly += parseFloat(p.total_fee) || 0
       if (p.type === 'buildout') entry.buildoutTotal += parseFloat(p.total_fee) || 0
       byBrand.set(p.brand_id, entry)
+      if (p.type === 'retainer' && !retainerProjectByBrand.has(p.brand_id)) {
+        retainerProjectByBrand.set(p.brand_id, p.id)
+      }
     }
-    setFinancials({ byClient, byBrand, allInvoices })
+    const workByBrand = new Map()
+    for (const w of workRes.data || []) {
+      if (!workByBrand.has(w.brand_id)) workByBrand.set(w.brand_id, [])
+      workByBrand.get(w.brand_id).push(w)
+    }
+    setFinancials({ byClient, byBrand, allInvoices, workByBrand, retainerProjectByBrand })
   }, [])
 
   useEffect(() => { loadContacts(); loadFinancials() }, [loadContacts, loadFinancials])
@@ -651,6 +667,8 @@ function ClientCard({
 
 function BrandCard({ brand, financials, onEdit }) {
   const bf = financials.byBrand.get(brand.id) || { buildoutTotal: 0, retainerMonthly: 0 }
+  const recentWork = (financials.workByBrand?.get(brand.id) || []).slice(0, 20)
+  const retainerProjectId = financials.retainerProjectByBrand?.get(brand.id)
   const [copied, setCopied] = useState(false)
 
   const copyBriefing = async () => {
@@ -728,6 +746,30 @@ function BrandCard({ brand, financials, onEdit }) {
           {copied ? '✓ Briefing copied' : 'Copy briefing'}
         </button>
       </div>
+
+      {recentWork.length > 0 && (
+        <div className="brand-activity">
+          <div className="brand-activity-header">
+            <span className="eyebrow">Recent activity (30d)</span>
+            {retainerProjectId && (
+              <Link to={`/projects?selected=${retainerProjectId}&tab=activity`} className="btn btn-link-small">
+                View all →
+              </Link>
+            )}
+          </div>
+          <ul className="brand-activity-list">
+            {recentWork.map((w) => (
+              <li key={w.id} className="brand-activity-row">
+                <span className="brand-activity-date">
+                  {new Date(w.performed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+                <span className="brand-activity-title">{w.title}</span>
+                <span className="brand-activity-svc">{w.retainer_services?.name || 'General'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

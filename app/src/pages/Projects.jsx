@@ -1,22 +1,47 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtMoneyShort, fmtDate, badgeStyle, COLORS, colorForProjectStatus } from '../lib/format'
 import EditProjectModal from '../components/forms/EditProjectModal'
 import EditDeliverableModal from '../components/forms/EditDeliverableModal'
 import EditServiceModal from '../components/forms/EditServiceModal'
+import LogWorkModal from '../components/forms/LogWorkModal'
 
 const DELIVERABLE_CYCLE = { not_started: 'in_progress', in_progress: 'complete', complete: 'not_started' }
 
 export default function Projects() {
+  const [params, setParams] = useSearchParams()
   const [projects, setProjects] = useState([])
   const [brands, setBrands] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(params.get('selected') || null)
+  const [activeTab, setActiveTabState] = useState(params.get('tab') || 'overview')
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('active')
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)
+  const [logCtx, setLogCtx] = useState(null)  // { brandId, serviceId? } or null
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0)
   const [err, setErr] = useState('')
+
+  const setActiveTab = useCallback((t) => {
+    setActiveTabState(t)
+    setParams((p) => {
+      if (t && t !== 'overview') p.set('tab', t)
+      else p.delete('tab')
+      return p
+    }, { replace: true })
+  }, [setParams])
+
+  // Keep URL in sync when the user picks a project via the list.
+  const selectProject = useCallback((id) => {
+    setSelectedId(id)
+    setParams((p) => {
+      if (id) p.set('selected', id)
+      else p.delete('selected')
+      return p
+    }, { replace: true })
+  }, [setParams])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -65,7 +90,7 @@ export default function Projects() {
 
   const onModalSaved = (_row, action) => {
     load()
-    if (action === 'deleted' && selectedId && _row.id === selectedId) setSelectedId(null)
+    if (action === 'deleted' && selectedId && _row.id === selectedId) selectProject(null)
   }
 
   const toggleDeliverableStatus = async (d) => {
@@ -158,10 +183,10 @@ export default function Projects() {
                   <li
                     key={p.id}
                     className={`project-row ${selectedId === p.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedId(p.id)}
+                    onClick={() => selectProject(p.id)}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.id) } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectProject(p.id) } }}
                     style={{ borderLeftColor: accent }}
                   >
                     <div className="project-row-top">
@@ -196,12 +221,16 @@ export default function Projects() {
           ) : (
             <ProjectDetail
               project={selected}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
               onEdit={() => setModal({ kind: 'project', data: selected })}
               onAddDeliverable={() => setModal({ kind: 'deliverable', data: { projectId: selected.id, nextNumber: (selected.deliverables?.length || 0) + 1 } })}
               onEditDeliverable={(d) => setModal({ kind: 'deliverable', data: { projectId: selected.id, deliverable: d } })}
               onToggleDeliverable={toggleDeliverableStatus}
               onAddService={() => setModal({ kind: 'service', data: { projectId: selected.id, nextNumber: (selected.retainer_services?.length || 0) + 1 } })}
               onEditService={(s) => setModal({ kind: 'service', data: { projectId: selected.id, service: s } })}
+              onLogWork={(ctx) => setLogCtx(ctx || { brandId: selected.brands?.id })}
+              activityRefreshKey={activityRefreshKey}
             />
           )}
         </div>
@@ -237,6 +266,14 @@ export default function Projects() {
           onSaved={onModalSaved}
         />
       )}
+      {logCtx && (
+        <LogWorkModal
+          defaultBrandId={logCtx.brandId}
+          defaultServiceId={logCtx.serviceId}
+          onClose={() => setLogCtx(null)}
+          onSaved={() => setActivityRefreshKey((k) => k + 1)}
+        />
+      )}
     </div>
   )
 }
@@ -245,12 +282,16 @@ export default function Projects() {
 
 function ProjectDetail({
   project,
+  activeTab,
+  setActiveTab,
   onEdit,
   onAddDeliverable,
   onEditDeliverable,
   onToggleDeliverable,
   onAddService,
   onEditService,
+  onLogWork,
+  activityRefreshKey,
 }) {
   const accent = project.brands?.color || 'var(--copper)'
   const isBuildout = project.type === 'buildout'
@@ -258,6 +299,8 @@ function ProjectDetail({
   const total = project.deliverables?.length || 0
   const done = (project.deliverables || []).filter((d) => d.status === 'complete').length
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  // Tabs exist only for retainer projects. Buildouts render Overview content unwrapped.
+  const tab = isRetainer ? (activeTab || 'overview') : 'overview'
 
   return (
     <div className="detail-pane">
@@ -284,9 +327,36 @@ function ProjectDetail({
         </div>
       </div>
 
-      {project.notes && <div className="detail-note">{project.notes}</div>}
+      {isRetainer && (
+        <div className="tab-bar">
+          <button
+            type="button"
+            className={`tab ${tab === 'overview' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overview')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={`tab ${tab === 'activity' ? 'active' : ''}`}
+            onClick={() => setActiveTab('activity')}
+          >
+            Activity
+          </button>
+        </div>
+      )}
 
-      {isBuildout && (
+      {tab === 'activity' && isRetainer && (
+        <ActivityTab
+          project={project}
+          onLogWork={() => onLogWork({ brandId: project.brands?.id })}
+          refreshKey={activityRefreshKey}
+        />
+      )}
+
+      {tab === 'overview' && project.notes && <div className="detail-note">{project.notes}</div>}
+
+      {tab === 'overview' && isBuildout && (
         <section>
           <div className="detail-section-header">
             <span className="eyebrow">Deliverables · {done}/{total} · {pct}%</span>
@@ -312,7 +382,7 @@ function ProjectDetail({
         </section>
       )}
 
-      {isRetainer && (
+      {tab === 'overview' && isRetainer && (
         <>
           <section>
             <div className="detail-section-header">
@@ -338,7 +408,7 @@ function ProjectDetail({
         </>
       )}
 
-      {project.briefing_md && (
+      {tab === 'overview' && project.briefing_md && (
         <section>
           <div className="detail-section-header">
             <span className="eyebrow">Briefing</span>
@@ -453,6 +523,178 @@ function RetainerTaskSummary({ tasks }) {
         )}
       </div>
     </div>
+  )
+}
+
+
+function fmtMonthName(yyyymm) {
+  const [y, m] = yyyymm.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
+function ActivityTab({ project, onLogWork, refreshKey }) {
+  const [entries, setEntries] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [serviceFilter, setServiceFilter] = useState('all')
+  const [expandedId, setExpandedId] = useState(null)
+  const [err, setErr] = useState('')
+
+  const services = useMemo(
+    () => [...(project.retainer_services || [])].sort((a, b) => a.number - b.number),
+    [project.retainer_services]
+  )
+  const activeServices = services.filter((s) => s.active)
+  const brandId = project.brands?.id
+
+  useEffect(() => {
+    if (!brandId) return
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setErr('')
+      const serviceIds = services.map((s) => s.id)
+      let q = supabase
+        .from('work_log')
+        .select('id, title, notes, link_url, performed_at, service_id, retainer_services (name)')
+        .eq('brand_id', brandId)
+        .order('performed_at', { ascending: false })
+      if (serviceIds.length > 0) {
+        q = q.or(`service_id.in.(${serviceIds.join(',')}),service_id.is.null`)
+      } else {
+        q = q.is('service_id', null)
+      }
+      const { data, error } = await q
+      if (cancelled) return
+      if (error) setErr(error.message)
+      setEntries(data || [])
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [brandId, services, refreshKey])
+
+  const filtered = useMemo(() => {
+    if (serviceFilter === 'all') return entries
+    if (serviceFilter === 'general') return entries.filter((e) => !e.service_id)
+    return entries.filter((e) => e.service_id === serviceFilter)
+  }, [entries, serviceFilter])
+
+  const months = useMemo(() => {
+    const map = new Map()
+    for (const e of filtered) {
+      const key = String(e.performed_at).slice(0, 7)
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(e)
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+  }, [filtered])
+
+  const hasEntries = entries.length > 0
+
+  return (
+    <section className="activity-tab">
+      <div className="detail-section-header" style={{ alignItems: 'center', gap: 10 }}>
+        <button className="btn btn-primary" onClick={onLogWork}>+ Log work</button>
+        {hasEntries && (
+          <div className="toolbar-filters" style={{ marginLeft: 'auto' }}>
+            <button
+              className={`filter-pill ${serviceFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setServiceFilter('all')}
+            >all</button>
+            {activeServices.map((s) => (
+              <button
+                key={s.id}
+                className={`filter-pill ${serviceFilter === s.id ? 'active' : ''}`}
+                onClick={() => setServiceFilter(s.id)}
+                title={s.name}
+              >{s.name}</button>
+            ))}
+            <button
+              className={`filter-pill ${serviceFilter === 'general' ? 'active' : ''}`}
+              onClick={() => setServiceFilter('general')}
+            >general</button>
+          </div>
+        )}
+      </div>
+
+      {err && <div className="form-error">{err}</div>}
+
+      {loading ? (
+        <div className="loading" style={{ minHeight: 120 }}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state" style={{ padding: 16 }}>
+          {hasEntries ? (
+            <p>No entries for this filter.</p>
+          ) : (
+            <>
+              <p>No activity logged yet.</p>
+              <button className="cta-link" onClick={onLogWork}>Log your first entry →</button>
+            </>
+          )}
+        </div>
+      ) : (
+        months.map(([monthKey, rows]) => {
+          const byService = new Map()
+          for (const r of rows) {
+            const k = r.service_id || '__general__'
+            if (!byService.has(k)) {
+              byService.set(k, {
+                name: r.retainer_services?.name || 'General',
+                entries: [],
+              })
+            }
+            byService.get(k).entries.push(r)
+          }
+          return (
+            <div key={monthKey} className="activity-month">
+              <h3 className="activity-month-header">{fmtMonthName(monthKey)}</h3>
+              {[...byService.entries()].map(([svcKey, { name, entries: svcEntries }]) => (
+                <div key={svcKey} className="activity-service-group">
+                  <div className="activity-service-label eyebrow">{name}</div>
+                  <ul className="activity-list">
+                    {svcEntries.map((e) => {
+                      const open = expandedId === e.id
+                      const firstLine = (e.notes || '').split('\n')[0]
+                      return (
+                        <li key={e.id} className={`activity-entry ${open ? 'open' : ''}`}>
+                          <button
+                            type="button"
+                            className="activity-entry-head"
+                            onClick={() => setExpandedId(open ? null : e.id)}
+                            aria-expanded={open}
+                          >
+                            <span className="activity-entry-title">{e.title}</span>
+                            <span className="activity-entry-meta">
+                              {new Date(e.performed_at).toLocaleString('en-US', {
+                                month: 'short', day: 'numeric',
+                                hour: 'numeric', minute: '2-digit',
+                              })}
+                              {e.link_url && <span className="activity-entry-link-icon" aria-label="has link">↗</span>}
+                            </span>
+                          </button>
+                          {firstLine && !open && (
+                            <div className="activity-entry-preview">{firstLine}</div>
+                          )}
+                          {open && (
+                            <div className="activity-entry-body">
+                              {e.notes && <pre className="activity-entry-notes">{e.notes}</pre>}
+                              {e.link_url && (
+                                <a href={e.link_url} target="_blank" rel="noreferrer" className="activity-entry-link">
+                                  {e.link_url}
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )
+        })
+      )}
+    </section>
   )
 }
 
