@@ -437,58 +437,6 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
   return { subject, html }
 }
 
-type InvoiceEmailData = {
-  clientName: string
-  brandName: string
-  invoiceNumber: string
-  description: string
-  amount: number | string
-  dueDate: string   // YYYY-MM-DD
-  fireDate: string  // YYYY-MM-DD (today if firing now)
-}
-
-/**
- * HTML for the "your invoice is being auto-charged today" notification.
- * Sent by auto-push-invoices on the business day before due_date.
- */
-export function buildInvoiceChargingEmail(d: InvoiceEmailData): { subject: string; html: string } {
-  const subject = `Invoice ${d.invoiceNumber} — ${d.brandName} — ${fmtMoney(d.amount)}`
-  const html = `
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; color: ${BRAND_INK}; background: ${BRAND_CREAM};">
-  <p style="margin: 0 0 16px; font-size: 15px;">Hi ${esc(d.clientName)},</p>
-  <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.55;">Your invoice for <strong>${esc(d.brandName)}</strong> is below &mdash; due <strong>${esc(fmtDate(d.dueDate))}</strong>. This will be auto-debited via ACH from your bank on the due date &mdash; nothing to do on your end.</p>
-  <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #ffffff; border: 1px solid rgba(18,16,13,0.12); font-size: 14px;">
-    <tr>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); color: rgba(18,16,13,0.65);">Invoice</td>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); text-align: right; font-family: ui-monospace, Menlo, monospace;"><strong>${esc(d.invoiceNumber)}</strong></td>
-    </tr>
-    <tr>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); color: rgba(18,16,13,0.65);">Description</td>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); text-align: right;">${esc(d.description)}</td>
-    </tr>
-    <tr>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); color: rgba(18,16,13,0.65);">Amount</td>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); text-align: right; font-weight: 600;">${fmtMoney(d.amount)}</td>
-    </tr>
-    <tr>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); color: rgba(18,16,13,0.65);">Due date</td>
-      <td style="padding: 12px 16px; border-bottom: 1px solid rgba(18,16,13,0.08); text-align: right;">${esc(fmtDate(d.dueDate))}</td>
-    </tr>
-    <tr>
-      <td style="padding: 12px 16px; color: rgba(18,16,13,0.65);">Payment method</td>
-      <td style="padding: 12px 16px; text-align: right;">Automatic ACH</td>
-    </tr>
-  </table>
-  <p style="margin: 16px 0; font-size: 13px; color: rgba(18,16,13,0.68); line-height: 1.55;">A paid receipt will follow automatically once the ACH clears (typically 3&ndash;5 business days after the due date).</p>
-  <p style="margin: 32px 0 0; padding-top: 16px; border-top: 1px solid rgba(18,16,13,0.12); font-size: 12px; color: rgba(18,16,13,0.55); line-height: 1.6;">
-    Questions? Reply to this email.<br>
-    <strong style="color: ${BRAND_ACCENT};">Case Laviolette</strong> &middot; Laviolette LLC<br>
-    4201 Sun Spirit Dr, Austin, TX 78735 &middot; EIN 99-1461687
-  </p>
-</div>`.trim()
-  return { subject, html }
-}
-
 type FailedPaymentEmailData = {
   clientName: string
   brandName: string
