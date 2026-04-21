@@ -119,13 +119,11 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Current state (as of 2026-04-21)
 
-- ✅ **Database** — **28 migrations applied** (19 at 2026-04-17 + 6
-  in 2026-04-20 session: `contacts_lead_tracking`,
-  `contacts_lead_backfill_fix`, `work_log`, `work_log_count_column`,
-  `monthly_recaps`, `health_checks`; + 1 in 2026-04-21 extended
-  session: `migrate_lead_tracking_to_lead_details`). RLS on every
-  table. Direct-pg connection on port 5432 (pooler 6543 broken — use
-  direct).
+- ✅ **Database** — **29 migrations applied** (full list + tracking in
+  `public._claude_migrations`; most recent adds: `v_stale_leads_contract_aware`,
+  `invoice_bank_link_url`, `invoices_pending_sent_date_partial_index`). RLS
+  on every table. Direct-pg connection on port 5432 (pooler 6543 broken —
+  use direct).
 - ✅ **Auth** — `case.laviolette@gmail.com` exists in Supabase Auth.
   Forgot-password uses Supabase's default email provider (SendGrid).
 - ✅ **Frontend** — live at https://app.laviolette.io. **8
@@ -137,15 +135,14 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   live at `laviolette.io/setup-success` and `laviolette.io/setup-cancel`.
   CLI installed globally via `brew install stripe/stripe-cli/stripe`;
   `STRIPE_API_KEY=sk_live_...` exported in `~/.zshrc`.
-- ✅ **Edge functions** — **20 deployed** (17 at 2026-04-17 + 2 in
-  2026-04-21 session: `generate-monthly-recaps`, `send-monthly-recap`;
-  `health` enhanced with response-body shape + health_checks logging
-  + source detection + holiday-safe MAX_GAP_HOURS; +1 in 2026-04-21
-  unified-onboarding session: `regenerate-bank-link`;
-  `contract-sign` + `send-invoice` modified for the same feature
-  behind `ENABLE_UNIFIED_ONBOARDING` flag — **flag ON as of 2026-04-21
-  after full OFF→ON→Regenerate end-to-end test on a disposable
-  buildout contract**).
+- ✅ **Edge functions** — **20 directories total** in
+  `supabase/functions/`: 19 production (deployed via
+  `scripts/deploy-edge.sh`) + `run-pipeline-test` (manual ops tool,
+  intentionally excluded). Unified onboarding flag
+  `ENABLE_UNIFIED_ONBOARDING` is **ON** on Supabase secrets (flipped
+  from `false` 2026-04-21 after OFF→ON→Regenerate end-to-end test on
+  a disposable buildout contract). 10-agent audit closed with 20 fixes
+  shipped across 3 rounds (2026-04-21).
 - ✅ **Stripe webhook** — live endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`
   at `…/functions/v1/stripe-webhook`, subscribed to **14 events**.
   See "Stripe webhook" section below for the full list + behaviors.
@@ -430,7 +427,12 @@ Deliverable Schedule, not the invoice line items.
 
 ### Secrets (Supabase Dashboard → Functions → Secrets)
 
-18 secrets total. Set via `npx supabase@latest secrets set NAME=value`:
+17 user-set secrets total (plus 4 Supabase-auto-provided: `SUPABASE_URL`,
+`SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`). Set
+via `npx supabase@latest secrets set NAME=value`. `DEPLOY_SHA` listed below
+is documented but not currently set on prod — edge fns default to `'unknown'`
+when missing, so `/health.deploy_sha='unknown'`. Set it intentionally if you
+ever wire a deploy-time CI tag.
 
 | Secret | Purpose |
 |---|---|
@@ -912,19 +914,20 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 28 (added `20260422000001_invoice_bank_link_url.sql` — one column for unified onboarding flow) |
-| Edge functions deployed | 20 (added `regenerate-bank-link` 2026-04-21 unified-onboarding; modified `contract-sign` + `send-invoice` in same session — flag `ENABLE_UNIFIED_ONBOARDING=false` default, set 2026-04-21) |
+| Migrations applied | 29 (most recent: `20260422000002_invoices_pending_sent_date_partial_index.sql` — audit Round 3 perf index on pending invoices). `_claude_migrations` row count matches filesystem. |
+| Edge functions deployed | 20 total (19 production in `deploy-edge.sh` + `run-pipeline-test` manual). `deploy-edge.sh` pinned to `supabase@2.93.0` (audit Round 3). |
 | Webhook events subscribed | 14 |
-| Cron jobs active | 9 (added `laviolette_generate_monthly_recaps` 2026-04-21) |
+| Cron jobs active | 9 (all under `laviolette_*` prefix, all active, see "Cron endpoints" table below) |
 | Unresolved `notification_failures` | 0 |
-| Authenticated screens | 8 (Today, Schedule, Contacts, Projects, Money, Contracts, Notifications, Incidents — added 2026-04-21) |
-| External monitoring | UptimeRobot LIVE 5-min on `/health`, alerts verified end-to-end (2026-04-21) |
-| Pending invoices | 6 (4 Dustin May 1 + Nicole LV-2026-005 + Viktoriia LV-2026-006 — both LV-006 and LV-005 now status=pending with PI attached, i.e. "processing" in UI) |
-| In-flight ACH | 2 — Nicole `pi_3TOhHzRzgnRnD0Dt0uGb2WtG` and Viktoriia `pi_3TOiitRzgnRnD0Dt0h8gGu0J`, both $1,700 buildouts, settle ~Apr 23-24 |
-| Stripe customers | 4 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`, Viktoriia Jones `cus_UNTJyt4qyKv2Wm`) |
-| DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead→active-in-flight, Viktoriia Jones lead→active-in-flight) |
-| Contracts | 4 signed (Dustin) + 1 draft (Exodus) + **2 signed 2026-04-21 extended** (Nicole, Viktoriia) — both buildouts, Variant C, $1,700 each, ACH fired same day |
-| Last frontend deploy | 2026-04-21 unified-onboarding: `index-BKS968Ck.js` / `index-DXISWbym.css` (Money.jsx adds Regenerate bank-link button conditional on `bank_link_url` set — retainer rows unchanged). |
-| Last edge-function deploy | 2026-04-21 Phase 6: `send-invoice` re-deployed with a 6-step "What to expect" list inside the unified CTA block (commit `d160e36`). Earlier in day: `contract-sign` + `send-invoice` + `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=true` (flipped from false after OFF→ON→Regenerate end-to-end test passed same day). `deploy-edge.sh` lists 19 (added `regenerate-bank-link`). |
-| Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
-| Unpushed local commits on `main` | **0** — all 30 commits from 2026-04-21 (27 extended + 3 unified-onboarding) pushed at session end. Origin HEAD matches local HEAD at `9165446`. |
+| Screens | 8 authenticated (Today, Schedule, Contacts, Projects, Money, Contracts, Notifications, Incidents) + 4 public (Sign, SetupSuccess, SetupCancel, Login) = 12 routes total |
+| External monitoring | UptimeRobot LIVE 5-min on `/health`, alerts verified end-to-end (2026-04-21). Status page: <https://stats.uptimerobot.com/muAd17CfnU>. |
+| Pending invoices | 6 — LV-2026-001..004 pending (Dustin, due May 1, no PI yet, fire_date 2026-04-30); LV-2026-005 + LV-2026-006 both pending + PI attached (Nicole/Viktoriia in-flight, render as PROCESSING in Money tab per `c444014`). |
+| In-flight ACH | 2 — Nicole `pi_3TOhHzRzgnRnD0Dt0uGb2WtG` + Viktoriia `pi_3TOiitRzgnRnD0Dt0h8gGu0J`, both $1,700 Variant-C buildouts, both `status=processing` on Stripe as of 2026-04-21 end of session. Webhook will flip invoices → paid + send receipts on settlement (~Apr 23-24). |
+| Stripe customers | 4 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`, Viktoriia Jones `cus_UNTJyt4qyKv2Wm`) + 1 audit-trail test customer `cus_UNW150fcvgvWJn` (intentionally kept, flagged via `metadata.laviolette_test`). |
+| DB clients | 5 (VBTX + Velvet Leaf = active/Dustin; Exodus 1414 = lead/Cody; Nicole James + Viktoriia Jones = lead, signed + in-flight). |
+| Contracts | 7 — 4 active (Dustin: 3 retainers + 1 buildout) + 2 signed (Nicole + Viktoriia, 2026-04-21 buildouts, Variant C) + 1 draft (Exodus 1414 buildout, regenerated with marker-based template 2026-04-21). |
+| Lead details rows | 3 (Cody Welch, Nicole James, Viktoriia Jones). Dustin correctly absent (customer, not lead). |
+| Last frontend deploy | 2026-04-21 audit Round 2: `index-BnBkH3Ws.js` / `index-DXISWbym.css` (post-Round-3 Commit-4 redeploy; see commit ledger). |
+| Last edge-function deploy | 2026-04-21 audit Round 3: `send-invoice`, `send-manual-receipt`, `send-monthly-recap`, `stripe-webhook`, `contract-sign`, `generate-monthly-recaps` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt` (M2 guard + M8 BCC + M9 threat-model doc + M3 PNG magic + M4 marker regex). Flag `ENABLE_UNIFIED_ONBOARDING=true` on Supabase secrets (digest `b5bea41b…` = sha256("true")). |
+| Last DB cleanup | 2026-04-21 Phase 6 extended (deleted Phase 6 test scaffold in single transaction; kept Stripe customer `cus_UNW150fcvgvWJn` as audit trail). |
+| Unpushed local commits on `main` | **0** after the audit Round 3 + cleanup push. Origin HEAD moves every batch; check `git log origin/main..HEAD --oneline` for live state. |

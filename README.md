@@ -87,9 +87,11 @@ Laviolette-app/
 │   ├── deploy-edge.sh          # Deploy all 19 production edge functions in one pass
 │   └── README.md               # Per-script docs
 ├── supabase/
-│   ├── migrations/             # 26 versioned SQL files (enums → tables → triggers →
-│   │                           #   RLS → storage → contracts-signing → stripe idempotency
-│   │                           #   → payment indexes → notification_failures → cron observability)
+│   ├── migrations/             # 29 versioned SQL files (enums → tables → triggers →
+│   │                           #   RLS → storage → contracts-signing → stripe idempotency →
+│   │                           #   payment indexes → notification_failures → cron observability →
+│   │                           #   lead tracking → work log → monthly recaps → health checks →
+│   │                           #   invoice bank-link → pending-sent-date partial index)
 │   ├── functions/              # 20 Deno edge functions (19 production + run-pipeline-test manual ops tool)
 │   │   ├── _shared/            # client-emails.ts, business-days.ts
 │   │   ├── stripe-webhook/     # 14 Stripe events + idempotency + HQ alerts
@@ -142,7 +144,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (~16 secrets).
 |---|---|---|
 | 0. Repo + credentials | ✅ | All 3 repos, gh CLI auth, Stripe CLI live-mode |
 | 0.5. Stripe CLI + static redirect pages | ✅ | Live on laviolette.io/setup-success + /setup-cancel |
-| 1. DB schema | ✅ | 17 tables, 100% comments, 17 triggers, RLS everywhere |
+| 1. DB schema | ✅ | 21 tables, full COMMENT coverage, triggers on every mutable row, RLS everywhere |
 | 2. Frontend scaffold + auth | ✅ | React 19 + Router 7 + Vite, per-page ErrorBoundary |
 | 3.1 Today | ✅ | Daily rounds + alerts + week tasks + buildout deliverables |
 | 3.2 Contacts/Clients/Brands | ✅ | Three-tier nested CRUD, billing-state pill with PI+Invoice checking |
