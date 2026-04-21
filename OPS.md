@@ -193,6 +193,32 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   duplicate-charge threat). Pure UI derivation — DB enum untouched,
   edge functions untouched. See commit `c444014` for full derivation
   logic.
+- ✅ **Cross-entity state-consistency sweep** (2026-04-21 extended,
+  commits `f64c61d` / `b48bbb7` / `472caa7` / `aae3f52`). Three parallel
+  read-only agents found 10 user-visible bugs where one display surface
+  didn't react to state transitions in related tables (e.g. Today showed
+  Nicole as "STALE LEAD · NEVER CONTACTED" after she signed + paid,
+  Contracts showed "active" where operator expects "signed", Projects
+  stayed at DRAFT after sign, invoice alerts fired despite PI attached,
+  etc.). Fixes shipped in four batches:
+  - **Batch A (`f64c61d`)** — UI-only render-time derivation across
+    Today / Contracts / Contacts / Money / format.js. No DB or edge fn
+    touch. 7 of 10 bugs resolved.
+  - **Batch B (`b48bbb7`)** — migration `20260421000002` rewrites
+    `v_stale_leads` to NOT EXISTS the contact's converted contracts
+    (status NOT IN draft/sent). Nicole drops off the Today stale-lead
+    alert automatically; no lead_details mutation needed.
+  - **Batch C (`472caa7`)** — defensive read-filter tightening on
+    `send-reminders` (lead-followup query), `auto-push-invoices`
+    (charging loop), `fire-day-reminder` (morning HQ digest), and
+    `check-overdue-invoices` (daily status flipper). Each now skips
+    invoices on cancelled/complete projects. Zero new email-send code
+    paths; purely suppression-only.
+  - **Batch D (`aae3f52`)** — `contract-sign` now advances
+    `projects.status` from `draft` to `active` on successful sign
+    (conditional, predicate-guarded, non-blocking). One-time backfill
+    flipped Nicole's + Viktoriia's project rows to active. No Stripe,
+    invoice, or contract writes beyond the existing atomic sign commit.
 - 🟡 **Viktoriia Jones onboarding complete 2026-04-21 extended.**
   Stripe customer `cus_UNTJyt4qyKv2Wm`, contract
   `f4283b8c-1292-458a-a64e-d9c60e2a4400` signed 18:00:19 UTC, invoice
@@ -738,7 +764,7 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 26 |
+| Migrations applied | 27 (added `20260421000002_v_stale_leads_contract_aware.sql` — view replacement adding NOT EXISTS contract-conversion predicate) |
 | Edge functions deployed | 19 (added `generate-monthly-recaps`, `send-monthly-recap` 2026-04-21; enhanced `health`) |
 | Webhook events subscribed | 14 |
 | Cron jobs active | 9 (added `laviolette_generate_monthly_recaps` 2026-04-21) |
@@ -753,4 +779,4 @@ single-user app).
 | Last frontend deploy | 2026-04-21 extended: `index-9fOK0ttZ.js` / `index-DXISWbym.css` (Money.jsx "processing" UI-state fix — commit `c444014`) |
 | Last edge-function deploy | 2026-04-21 extended: `bash scripts/deploy-edge.sh` (all 13 deploy-edge-managed functions re-uploaded with `auto-push-invoices` + `create-stripe-invoice` email suppression from commit `2e886c1`). **Note:** deploy-edge.sh covers 18 production functions post-commit `05ff837` but only re-uploads when run; individual function updates can use `npx supabase functions deploy <name> --no-verify-jwt`. |
 | Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
-| Unpushed local commits on `main` | 22+ (see `git log origin/main..HEAD`). Latest: `c444014 fix: surface processing as a distinct UI state for in-flight ACH`. Full chain since `71b5b02` (origin HEAD) — lead_details migration (`987ac4b`), contacts stage-pill polish (`b5f9d3c`), invoice-charging email suppression (`2e886c1`), full audit-driven cleanup batch (11 commits `e9615f8`→`88cb952`), plus today's processing-state UI fix. |
+| Unpushed local commits on `main` | **0** — all 27 commits from 2026-04-21 extended session pushed at session end. Origin HEAD matches local HEAD at `aae3f52`. |
