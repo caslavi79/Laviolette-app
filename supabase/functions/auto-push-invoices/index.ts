@@ -19,7 +19,6 @@ import Stripe from 'https://esm.sh/stripe@17?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   todayCentral,
-  businessDayBefore,
   computeFireDate,
 } from '../_shared/business-days.ts'
 import {
