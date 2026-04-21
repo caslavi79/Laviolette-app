@@ -195,6 +195,25 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, error: 'Contract was signed by someone else just now.' }, 409, corsHeaders)
     }
 
+    // Advance the linked project from draft → active on successful sign.
+    // Non-blocking + conditionally-guarded: only flip rows still in draft
+    // state (pre-existing active/paused/complete/cancelled projects are
+    // not touched). A failure here never reverses the signature — the
+    // client already saw "Signed" in the UI; the project advance is
+    // bookkeeping. Operator can manually flip via the Projects page if
+    // this step errors, and the UI state-consistency sweep in Batch A
+    // derives display state from contract presence anyway.
+    if (contract.project_id) {
+      const { error: projErr } = await supabase
+        .from('projects')
+        .update({ status: 'active', updated_at: signedAt })
+        .eq('id', contract.project_id)
+        .eq('status', 'draft')
+      if (projErr) {
+        console.warn(`[contract-sign] project advance failed for ${contract.project_id}: ${projErr.message}`)
+      }
+    }
+
     // Confirmation emails — fire-and-forget. Includes the signing URL so the
     // signer can revisit the page anytime to view + download a PDF of the
     // fully-executed contract (required for ESIGN §101(d) record retention).
