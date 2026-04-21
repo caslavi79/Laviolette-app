@@ -47,7 +47,7 @@ npm run apply-migrations
 cd Laviolette-app
 npm run db:verify
 
-# 6. Deploy all 18 production edge functions in one pass (excludes run-pipeline-test)
+# 6. Deploy all 19 production edge functions in one pass (excludes run-pipeline-test)
 cd Laviolette-app
 bash scripts/deploy-edge.sh
 
@@ -137,10 +137,13 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   live at `laviolette.io/setup-success` and `laviolette.io/setup-cancel`.
   CLI installed globally via `brew install stripe/stripe-cli/stripe`;
   `STRIPE_API_KEY=sk_live_...` exported in `~/.zshrc`.
-- ✅ **Edge functions** — **19 deployed** (17 at 2026-04-17 + 2 in
+- ✅ **Edge functions** — **20 deployed** (17 at 2026-04-17 + 2 in
   2026-04-21 session: `generate-monthly-recaps`, `send-monthly-recap`;
   `health` enhanced with response-body shape + health_checks logging
-  + source detection + holiday-safe MAX_GAP_HOURS).
+  + source detection + holiday-safe MAX_GAP_HOURS; +1 in 2026-04-21
+  unified-onboarding session: `regenerate-bank-link`;
+  `contract-sign` + `send-invoice` modified for the same feature
+  behind `ENABLE_UNIFIED_ONBOARDING` flag — default OFF).
 - ✅ **Stripe webhook** — live endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`
   at `…/functions/v1/stripe-webhook`, subscribed to **14 events**.
   See "Stripe webhook" section below for the full list + behaviors.
@@ -425,7 +428,7 @@ Deliverable Schedule, not the invoice line items.
 
 ### Secrets (Supabase Dashboard → Functions → Secrets)
 
-16 secrets total. Set via `npx supabase@latest secrets set NAME=value`:
+17 secrets total. Set via `npx supabase@latest secrets set NAME=value`:
 
 | Secret | Purpose |
 |---|---|
@@ -446,6 +449,7 @@ Deliverable Schedule, not the invoice line items.
 | `BRAND_INK` | `#F4F0E8` (cream) |
 | `BRAND_LOGO_URL` | Logo URL for email HTML (currently empty string) |
 | `DEPLOY_SHA` | Short SHA of the current deploy, surfaced in `/health` response body. Safe default `'unknown'` so missing secret doesn't crash. |
+| `ENABLE_UNIFIED_ONBOARDING` | Feature flag for the unified onboarding flow. `"true"` → `contract-sign` synthesizes invoice + bank-link on buildout sign. Any other value (including unset) → existing multi-step flow. Default `"false"` at deploy time. See "Architecture: Unified onboarding flow" section. |
 
 Plus auto-provided by Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 `SUPABASE_ANON_KEY`. These are always present in edge function env.
@@ -533,6 +537,105 @@ flow (ACH fee only, capped at $5).
   an audit trail if Case manually marked partially_paid before the webhook.
 - Blocked invoices (eligible-but-no-bank): `auto_push_blocked` HQ alert fires
   so Case knows before he wakes up expecting 4 charges and only sees 2.
+
+---
+
+## Architecture: Unified onboarding flow (feature-flagged, default OFF)
+
+Added 2026-04-21. Replaces the pre-existing multi-step operator onboarding
+for Variant C buildouts (operator pre-creates invoice → sends contract →
+client signs → operator separately runs `stripe-setup` → client receives a
+SECOND email with the bank-link URL) with a single atomic flow where
+`contract-sign` synthesizes the invoice + mints a Stripe Checkout session
++ fires ONE email containing both the invoice document and the bank-link
+CTA.
+
+**Gate on all three:** flag `ENABLE_UNIFIED_ONBOARDING` is `"true"` AND
+`contract.type === 'buildout'` AND the project has zero non-void invoices
+yet. Any failure of those conditions → falls through to the existing
+send-invoice-for-pending loop (bit-for-bit identical pre-change behavior).
+
+### Feature flag
+
+| Setting | Value | Effect |
+|---|---|---|
+| Unset / empty / `"false"` | default | Existing flow. `contract-sign` never synthesizes an invoice. |
+| `"true"` | unified ON | `contract-sign` synthesizes invoice + bank-link + fires unified email on buildout signs. |
+
+**Enable (when ready, after test-contract validation):**
+```bash
+npx supabase@latest secrets set ENABLE_UNIFIED_ONBOARDING=true \
+  --project-ref sukcufgjptllzucbneuj
+```
+
+**Rollback (any time):**
+```bash
+npx supabase@latest secrets set ENABLE_UNIFIED_ONBOARDING=false \
+  --project-ref sukcufgjptllzucbneuj
+```
+
+Edge functions pick up the new value on the next invocation (no redeploy
+needed — Deno reads env at runtime). Existing Nicole / Viktoriia / Dustin
+invoice rows are unaffected either direction.
+
+### Flow through a unified buildout onboarding
+
+```
+Case: verbal agreement → opens Claude Code → "generate buildout contract for X"
+  ↓
+generate-contract.mjs inserts contracts row (status='draft', total_fee set, no invoice yet)
+  ↓
+Case: "Send for signing" button → contract-send fires Resend signing email
+  ↓
+Client: clicks /sign?token=..., signs
+  ↓
+contract-sign:
+  a. Atomic UPDATE contracts → status='signed', sig baked into filled_html
+  b. Project draft → active
+  c. Signer + HQ confirmation emails (existing)
+  d. UNIFIED BRANCH (flag ON + buildout + no invoice yet):
+     1. Pre-flight: STRIPE_SECRET_KEY present, client.stripe_customer_id set,
+        contract.total_fee > 0, contract.effective_date set
+     2. stripe.checkout.sessions.create(mode=setup, us_bank_account, financial_connections instant)
+        ← Stripe FIRST: failure leaves zero orphan invoice
+     3. invoices INSERT with bank_link_url already populated (never transiently-null)
+     4. Backfill Stripe session metadata with laviolette_invoice_id (non-fatal)
+     5. fetch send-invoice?key=... { invoice_id } fire-and-forget
+  e. If any step d fails: DLQ row 'contract-sign:bank-link-failure:<contract.id>',
+     return 500 with contract_signed: true (contract stays signed; Case recovers manually)
+  ↓
+Client: receives ONE email with invoice metadata + line items + Total Due + CTA button
+  ↓
+Client: clicks "Link your bank" → Stripe Checkout setup (24h-valid session) → Financial Connections
+  ↓
+checkout.session.completed webhook → stripe-webhook sets bank_info_on_file=true, fires "✓ Bank linked" HQ alert
+  ↓
+Case (any time): Money tab → highlighted invoice → "Charge via ACH"
+  OR auto-push-invoices on fire_date at 4:05 PM CT (existing path)
+  ↓
+payment_intent.succeeded webhook → invoice paid, receipt to client, ✓ Paid HQ alert
+```
+
+### Regenerate bank-link (stale-session recovery)
+
+Stripe Checkout setup sessions expire after 24 hours. If the client doesn't
+click the CTA within that window, Case can mint a fresh session + re-send
+the invoice email without touching anything else on the invoice:
+
+1. Money tab → pending invoice with `bank_link_url IS NOT NULL AND stripe_payment_intent_id IS NULL` → "Regenerate bank-link" button next to "Charge via ACH"
+2. Click → `POST /functions/v1/regenerate-bank-link { invoice_id }`
+3. Function validates state, creates fresh Stripe session (Stripe FIRST — failure leaves stale URL intact), UPDATEs `bank_link_url`, fires `send-invoice { invoice_id, force: true }` (force flag bypasses `sent_date` idempotency)
+4. Toast: `✓ Fresh bank-link sent to <client billing_email>`
+
+Gated in UI on: `bank_link_url IS NOT NULL AND status='pending' AND no PI AND no Stripe invoice`. Retainer invoices (no `bank_link_url`) never show the button.
+
+### What this does NOT change
+
+- Retainer invoices — `bank_link_url` stays NULL, send-invoice renders without CTA, auto-push fires on fire_date as today.
+- Existing Dustin + Nicole + Viktoriia invoice rows — zero writes to any column on any of LV-2026-001..006.
+- The monthly `generate-retainer-invoices` cron — untouched, never sets `bank_link_url`.
+- `auto-push-invoices`, `check-overdue-invoices`, `fire-day-reminder`, `stripe-webhook` — no behavior change.
+- `invoice_status` enum — no additions (the UI-only `processing` projection from `c444014` still handles in-flight ACH display).
 
 ---
 
@@ -764,8 +867,8 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 27 (added `20260421000002_v_stale_leads_contract_aware.sql` — view replacement adding NOT EXISTS contract-conversion predicate) |
-| Edge functions deployed | 19 (added `generate-monthly-recaps`, `send-monthly-recap` 2026-04-21; enhanced `health`) |
+| Migrations applied | 28 (added `20260422000001_invoice_bank_link_url.sql` — one column for unified onboarding flow) |
+| Edge functions deployed | 20 (added `regenerate-bank-link` 2026-04-21 unified-onboarding; modified `contract-sign` + `send-invoice` in same session — flag `ENABLE_UNIFIED_ONBOARDING=false` default, set 2026-04-21) |
 | Webhook events subscribed | 14 |
 | Cron jobs active | 9 (added `laviolette_generate_monthly_recaps` 2026-04-21) |
 | Unresolved `notification_failures` | 0 |
@@ -776,7 +879,7 @@ single-user app).
 | Stripe customers | 4 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`, Viktoriia Jones `cus_UNTJyt4qyKv2Wm`) |
 | DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead→active-in-flight, Viktoriia Jones lead→active-in-flight) |
 | Contracts | 4 signed (Dustin) + 1 draft (Exodus) + **2 signed 2026-04-21 extended** (Nicole, Viktoriia) — both buildouts, Variant C, $1,700 each, ACH fired same day |
-| Last frontend deploy | 2026-04-21 extended: `index-9fOK0ttZ.js` / `index-DXISWbym.css` (Money.jsx "processing" UI-state fix — commit `c444014`) |
-| Last edge-function deploy | 2026-04-21 extended: `bash scripts/deploy-edge.sh` (all 13 deploy-edge-managed functions re-uploaded with `auto-push-invoices` + `create-stripe-invoice` email suppression from commit `2e886c1`). **Note:** deploy-edge.sh covers 18 production functions post-commit `05ff837` but only re-uploads when run; individual function updates can use `npx supabase functions deploy <name> --no-verify-jwt`. |
+| Last frontend deploy | 2026-04-21 unified-onboarding: `index-BKS968Ck.js` / `index-DXISWbym.css` (Money.jsx adds Regenerate bank-link button conditional on `bank_link_url` set — retainer rows unchanged). |
+| Last edge-function deploy | 2026-04-21 unified-onboarding: `contract-sign`, `send-invoice`, `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=false` set on secrets. `deploy-edge.sh` now lists 19 (added `regenerate-bank-link`). |
 | Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
 | Unpushed local commits on `main` | **0** — all 27 commits from 2026-04-21 extended session pushed at session end. Origin HEAD matches local HEAD at `aae3f52`. |
