@@ -70,7 +70,11 @@ for fn in "${FUNCTIONS[@]}"; do
   i=$((i + 1))
   echo ""
   echo "  [$i/$total] Deploying $fn …"
-  npx supabase functions deploy "$fn" \
+  # Pinned CLI version (2.93.0 as of 2026-04-21) — prevents a breaking
+  # supabase CLI release from taking down a deploy mid-batch. Bump
+  # intentionally when you verify a newer version works; OPS.md ad-hoc
+  # command examples stay on @latest since Case runs those interactively.
+  npx supabase@2.93.0 functions deploy "$fn" \
     --project-ref "$PROJECT_REF" \
     --no-verify-jwt
 done
