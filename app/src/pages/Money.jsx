@@ -298,9 +298,7 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
           {chargeResult?.invoice_id === inv.id && (
             <div className={chargeResult.ok ? 'send-result send-result--ok' : 'send-result send-result--warn'}>
               {chargeResult.ok ? (
-                <>
-                  ✓ Pushed to Stripe — {chargeResult.collection_method === 'charge_automatically' ? 'ACH debit initiated (3-5 days to clear)' : 'payment email sent to client'}
-                </>
+                <>✓ Pushed to Stripe — ACH debit initiated (3-5 days to clear)</>
               ) : (
                 <>✗ {chargeResult.error}</>
               )}
