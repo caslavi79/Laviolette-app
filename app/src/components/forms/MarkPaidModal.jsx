@@ -52,10 +52,10 @@ export default function MarkPaidModal({ invoice, onClose, onSaved }) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({ invoice_id: invoice.id }),
-            }).catch((e) => console.error('manual-receipt fire-and-forget failed:', e))
+            }).catch((e) => { if (import.meta.env.DEV) console.error('manual-receipt fire-and-forget failed:', e) })
           }
         } catch (sendErr) {
-          console.error('mark-paid receipt dispatch failed:', sendErr)
+          if (import.meta.env.DEV) console.error('mark-paid receipt dispatch failed:', sendErr)
         }
       }
       onSaved(data, 'updated')
