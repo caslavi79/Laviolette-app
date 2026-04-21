@@ -193,3 +193,19 @@ Individual redeploy:
 ```bash
 npx supabase@latest functions deploy <function-name> --no-verify-jwt
 ```
+
+## One-off operations log
+
+Notable ad-hoc mutations (executed via inline node/pg scripts, not committed as
+reusable scripts). Kept here so future operators can trace what happened without
+digging through git history.
+
+- **2026-04-21 late extended** — regenerated `filled_html` on draft contract
+  `947f7169-af69-4b9b-93ef-8cebdf94916f` (Exodus 1414 Build-Out Services
+  Agreement, Cody Welch) to include the `<!-- client-sig-block -->` markers
+  from audit Round 3 M4. Predicate-guarded UPDATE (`status='draft'`);
+  preserved `sign_token`, `sent_at`, signer fields, `field_values`,
+  `created_at`, and every other column byte-for-byte. No downstream impact;
+  the marker regex fallback in `contract-sign` would have handled the
+  pre-marker HTML correctly at sign time anyway — this was fleet-consistency
+  cleanup. Logged via commit that references this entry.
