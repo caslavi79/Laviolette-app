@@ -37,7 +37,7 @@ const CASE_EMAIL = Deno.env.get('CASE_NOTIFY_EMAIL') || 'case.laviolette@gmail.c
 const REMINDERS_SECRET = env('REMINDERS_SECRET')
 const APP_URL = Deno.env.get('APP_URL') || 'https://app.laviolette.io'
 
-const TZ = 'America/Denver'
+const TZ = 'America/Chicago'
 
 function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -75,7 +75,7 @@ Deno.serve(async (req: Request) => {
   const { data: overdue } = await supabase
     .from('invoices')
     .select('id, invoice_number, description, total, due_date, status, clients(name, legal_name)')
-    .or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`)
+    .or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today},stripe_payment_intent_id.is.null,stripe_invoice_id.is.null)`)
   for (const inv of overdue || []) {
     const client = (inv as any).clients?.legal_name || (inv as any).clients?.name || 'Unknown'
     const du = Math.round((Date.parse(today) - Date.parse(inv.due_date)) / 86_400_000)

@@ -3,6 +3,7 @@
 // active → expired when end_date < today AND auto_renew=false.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { todayCentral } from '../_shared/business-days.ts'
 
 function env(key: string): string {
   const v = Deno.env.get(key)
@@ -15,15 +16,11 @@ const SECRET = env('REMINDERS_SECRET')
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-function todayMT(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-}
-
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url)
   if (SECRET && url.searchParams.get('key') !== SECRET) return new Response('Unauthorized', { status: 401 })
 
-  const today = todayMT()
+  const today = todayCentral()
 
   const { data: activated } = await admin
     .from('contracts')

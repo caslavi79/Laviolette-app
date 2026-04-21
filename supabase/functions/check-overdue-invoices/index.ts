@@ -1,11 +1,12 @@
 // check-overdue-invoices
-// Runs daily at 6am MT. Transitions pending invoices past due_date
+// Runs daily at 6am CT. Transitions pending invoices past due_date
 // into 'overdue'. Applies the $100 late-fee flag after 5 business days.
 //
 // This function only flags; it never sends emails by itself — the
 // send-reminders digest picks overdue rows up and includes them.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { todayCentral } from '../_shared/business-days.ts'
 
 function env(key: string): string {
   const v = Deno.env.get(key)
@@ -18,10 +19,6 @@ const SECRET = env('REMINDERS_SECRET')
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-function todayMT(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-}
-
 function businessDaysAgo(n: number): string {
   const d = new Date()
   let days = 0
@@ -30,7 +27,7 @@ function businessDaysAgo(n: number): string {
     const dow = d.getDay()
     if (dow !== 0 && dow !== 6) days++
   }
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 }
 
 Deno.serve(async (req: Request) => {
@@ -39,7 +36,7 @@ Deno.serve(async (req: Request) => {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  const today = todayMT()
+  const today = todayCentral()
   const fiveBD = businessDaysAgo(5)
 
   // Identify candidate invoices for the overdue-transition, scoped to
