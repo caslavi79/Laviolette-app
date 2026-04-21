@@ -65,6 +65,7 @@ export default function Layout() {
           <GuardedNavLink to="/projects">Projects</GuardedNavLink>
           <GuardedNavLink to="/money">Money</GuardedNavLink>
           <GuardedNavLink to="/contracts">Contracts</GuardedNavLink>
+          <GuardedNavLink to="/incidents">Incidents</GuardedNavLink>
           {alertCount > 0 && (
             <GuardedNavLink to="/notifications">
               <span className="nav-alert-row">
