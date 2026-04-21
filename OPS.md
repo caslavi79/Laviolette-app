@@ -47,7 +47,7 @@ npm run apply-migrations
 cd Laviolette-app
 npm run db:verify
 
-# 6. Deploy all 14 edge functions in one pass
+# 6. Deploy all 18 production edge functions in one pass (excludes run-pipeline-test)
 cd Laviolette-app
 bash scripts/deploy-edge.sh
 
@@ -119,11 +119,13 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Current state (as of 2026-04-21)
 
-- ✅ **Database** — **25 migrations applied** (20 at 2026-04-17 + 6
-  in 2026-04-21 session: `contacts_lead_tracking`,
+- ✅ **Database** — **26 migrations applied** (19 at 2026-04-17 + 6
+  in 2026-04-20 session: `contacts_lead_tracking`,
   `contacts_lead_backfill_fix`, `work_log`, `work_log_count_column`,
-  `monthly_recaps`, `health_checks`). RLS on every table. Direct-pg
-  connection on port 5432 (pooler 6543 broken — use direct).
+  `monthly_recaps`, `health_checks`; + 1 in 2026-04-21 extended
+  session: `migrate_lead_tracking_to_lead_details`). RLS on every
+  table. Direct-pg connection on port 5432 (pooler 6543 broken — use
+  direct).
 - ✅ **Auth** — `case.laviolette@gmail.com` exists in Supabase Auth.
   Forgot-password uses Supabase's default email provider (SendGrid).
 - ✅ **Frontend** — live at https://app.laviolette.io. **8
@@ -398,6 +400,7 @@ Deliverable Schedule, not the invoice line items.
 | `BRAND_BG` | `#12100D` (ink) |
 | `BRAND_INK` | `#F4F0E8` (cream) |
 | `BRAND_LOGO_URL` | Logo URL for email HTML (currently empty string) |
+| `DEPLOY_SHA` | Short SHA of the current deploy, surfaced in `/health` response body. Safe default `'unknown'` so missing secret doesn't crash. |
 
 Plus auto-provided by Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 `SUPABASE_ANON_KEY`. These are always present in edge function env.
@@ -716,7 +719,7 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 25 |
+| Migrations applied | 26 |
 | Edge functions deployed | 19 (added `generate-monthly-recaps`, `send-monthly-recap` 2026-04-21; enhanced `health`) |
 | Webhook events subscribed | 14 |
 | Cron jobs active | 9 (added `laviolette_generate_monthly_recaps` 2026-04-21) |
@@ -731,4 +734,4 @@ single-user app).
 | Last frontend deploy | 2026-04-21 (audit-fix batch: `index-CvjrX8l7.js` / `index-DXISWbym.css`) |
 | Last edge-function deploy | 2026-04-21 (`health`, `generate-monthly-recaps`, `send-monthly-recap` with audit fixes) |
 | Last DB cleanup | 2026-04-21 (all smoke-test residue from 3a/3b/3c/3e tests removed) |
-| Unpushed local commits on `main` | **6** (5 feat/fix + `545a3d3 docs`). Do NOT push until the lead_details cleanup prompt ships next session. |
+| Unpushed local commits on `main` | 10+ (see `git log origin/main..HEAD`). 2026-04-21 extended session shipped lead_details migration (`987ac4b`), contacts stage-pill polish (`b5f9d3c`), invoice-charging email suppression (`2e886c1`), plus the full audit-driven cleanup batch. |
