@@ -46,6 +46,7 @@ export default function Today() {
   const [weekTasks, setWeekTasks] = useState([])       // this week's retainer_tasks for today's brand
   const [deliverables, setDeliverables] = useState([]) // in-progress deliverables for today's brand
   const [alerts, setAlerts] = useState([])
+  const [staleLeads, setStaleLeads] = useState([])
   const [err, setErr] = useState('')
   const saveTimers = useRef({})
 
@@ -211,6 +212,13 @@ export default function Today() {
           link: null,
         })
       }
+
+      // Stale leads (view encapsulates the rule — don't recompute here)
+      const { data: staleRows } = await supabase
+        .from('v_stale_leads')
+        .select('contact_id, name, stage, days_since_contact, next_touch_at, reason')
+        .order('days_since_contact', { ascending: false, nullsFirst: true })
+      setStaleLeads(staleRows || [])
 
       setSchedule(todaysSchedule)
       setRounds(drData || [])
@@ -452,8 +460,28 @@ export default function Today() {
       )}
 
       {/* Alerts */}
-      {alerts.length > 0 && (
+      {(alerts.length > 0 || staleLeads.length > 0) && (
         <section className="alerts-bar">
+          {staleLeads.map((s) => {
+            const isOverdue = s.reason === 'overdue_touch'
+            const sub = isOverdue
+              ? `Overdue follow-up — was due ${fmtDate(s.next_touch_at, { month: 'short', day: 'numeric' })}`
+              : (s.days_since_contact == null
+                  ? 'No contact logged'
+                  : `${s.days_since_contact} day${s.days_since_contact === 1 ? '' : 's'} since contact`)
+            return (
+              <Link
+                key={`stale-${s.contact_id}`}
+                to={`/contacts?highlight=${s.contact_id}`}
+                className="alert-row"
+              >
+                <span className="alert-dot" style={{ background: COLORS.amber }} />
+                <span className="alert-label" style={{ color: COLORS.amber }}>STALE LEAD</span>
+                <span className="alert-text">{s.name}</span>
+                <span className="alert-sub">{sub}</span>
+              </Link>
+            )
+          })}
           {alerts.map((a, i) => {
             const content = (
               <>

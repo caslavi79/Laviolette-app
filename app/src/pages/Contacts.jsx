@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtMoneyShort, fmtDate, badgeStyle, COLORS } from '../lib/format'
 import EditContactModal from '../components/forms/EditContactModal'
@@ -12,6 +13,20 @@ const STATUS_COLOR = {
   active: COLORS.green,
   past:   COLORS.slate,
 }
+const STAGE_COLOR = {
+  lead:     '#9B8B73',
+  proposal: COLORS.copper,
+  active:   COLORS.green,
+  past:     COLORS.slate,
+  dead:     COLORS.steel,
+}
+const STAGE_LABEL = {
+  lead:     'lead',
+  proposal: 'proposal',
+  active:   'active',
+  past:     'past',
+  dead:     'dead',
+}
 const BRAND_STATUS_COLOR = {
   active:     COLORS.green,
   paused:     COLORS.amber,
@@ -21,6 +36,42 @@ const BRAND_STATUS_COLOR = {
 function StatusPill({ status, map = STATUS_COLOR }) {
   const color = map[status] || COLORS.steel
   return <span style={badgeStyle(color)}>{status}</span>
+}
+
+function StagePill({ stage }) {
+  const color = STAGE_COLOR[stage] || COLORS.steel
+  return <span style={badgeStyle(color)}>{STAGE_LABEL[stage] || stage}</span>
+}
+
+function StaleBadge() {
+  return (
+    <span
+      title="Stale — follow-up overdue"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        marginLeft: 6,
+        fontFamily: 'var(--label)',
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: '1.5px',
+        textTransform: 'uppercase',
+        color: COLORS.amber,
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: COLORS.amber,
+          display: 'inline-block',
+        }}
+      />
+      stale
+    </span>
+  )
 }
 
 /**
@@ -82,10 +133,13 @@ function BillingStatePill({ state }) {
 /* --------- page --------- */
 
 export default function Contacts() {
+  const [params] = useSearchParams()
+  const highlightId = params.get('highlight')
   const [contacts, setContacts] = useState([])
+  const [staleIds, setStaleIds] = useState(() => new Set())
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [stageFilter, setStageFilter] = useState('all')
   const [selectedContactId, setSelectedContactId] = useState(null)
   const [financials, setFinancials] = useState({ byClient: new Map(), byBrand: new Map(), allInvoices: [] })
   const [modalState, setModalState] = useState(null) // { kind, data }
@@ -96,23 +150,28 @@ export default function Contacts() {
   const loadContacts = useCallback(async () => {
     setLoading(true)
     setErr('')
-    const { data, error } = await supabase
-      .from('contacts')
-      .select(`
-        *,
-        clients (
+    const [contactsRes, staleRes] = await Promise.all([
+      supabase
+        .from('contacts')
+        .select(`
           *,
-          brands (*)
-        )
-      `)
-      .order('name')
-    if (error) {
-      setErr(error.message)
+          clients (
+            *,
+            brands (*)
+          )
+        `)
+        .order('name'),
+      supabase.from('v_stale_leads').select('contact_id'),
+    ])
+    if (contactsRes.error) {
+      setErr(contactsRes.error.message)
       setContacts([])
+      setStaleIds(new Set())
       setLoading(false)
       return
     }
-    setContacts(data || [])
+    setContacts(contactsRes.data || [])
+    setStaleIds(new Set((staleRes.data || []).map((r) => r.contact_id)))
     setLoading(false)
   }, [])
 
@@ -150,19 +209,44 @@ export default function Contacts() {
 
   useEffect(() => { loadContacts(); loadFinancials() }, [loadContacts, loadFinancials])
 
+  // Deep-link support: /contacts?highlight=<contact_id> (from Today's stale-leads
+  // widget) scrolls to + flashes + selects the target row. Reuses the copper-halo
+  // pattern established on the Money page.
+  useEffect(() => {
+    if (!highlightId || loading || contacts.length === 0) return
+    setSelectedContactId(highlightId)
+    const el = document.querySelector(`[data-contact-id="${highlightId}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('contact-row--flash')
+    const t = setTimeout(() => el.classList.remove('contact-row--flash'), 3000)
+    return () => clearTimeout(t)
+  }, [highlightId, loading, contacts.length])
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return contacts.filter((c) => {
-      if (statusFilter !== 'all' && c.status !== statusFilter) return false
+    const filtered = contacts.filter((c) => {
+      if (stageFilter === 'all' && c.stage === 'dead') return false
+      if (stageFilter === 'past_dead' && !['past','dead'].includes(c.stage)) return false
+      if (!['all','past_dead'].includes(stageFilter) && c.stage !== stageFilter) return false
       if (!q) return true
       const haystack = [
-        c.name, c.email, c.phone,
+        c.name, c.email, c.phone, c.lead_source, c.lead_notes,
         ...(c.clients || []).flatMap((cl) => [cl.name, cl.legal_name, cl.billing_email]),
         ...(c.clients || []).flatMap((cl) => (cl.brands || []).flatMap((b) => [b.name, b.instagram_handle])),
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(q)
     })
-  }, [contacts, search, statusFilter])
+    // Stale first, then most-recently-contacted. Null last_contacted sorts oldest.
+    return [...filtered].sort((a, b) => {
+      const aStale = staleIds.has(a.id) ? 1 : 0
+      const bStale = staleIds.has(b.id) ? 1 : 0
+      if (aStale !== bStale) return bStale - aStale
+      const at = a.last_contacted_at || ''
+      const bt = b.last_contacted_at || ''
+      return bt.localeCompare(at)
+    })
+  }, [contacts, search, stageFilter, staleIds])
 
   const selected = visible.find((c) => c.id === selectedContactId) || contacts.find((c) => c.id === selectedContactId)
 
@@ -232,13 +316,19 @@ export default function Contacts() {
           aria-label="Search"
         />
         <div className="toolbar-filters">
-          {['all', 'lead', 'active', 'past'].map((s) => (
+          {[
+            { key: 'all',       label: 'all' },
+            { key: 'lead',      label: 'leads' },
+            { key: 'proposal',  label: 'proposals' },
+            { key: 'active',    label: 'active' },
+            { key: 'past_dead', label: 'past/dead' },
+          ].map((f) => (
             <button
-              key={s}
-              className={`filter-pill ${statusFilter === s ? 'active' : ''}`}
-              onClick={() => setStatusFilter(s)}
+              key={f.key}
+              className={`filter-pill ${stageFilter === f.key ? 'active' : ''}`}
+              onClick={() => setStageFilter(f.key)}
             >
-              {s}
+              {f.label}
             </button>
           ))}
         </div>
@@ -274,9 +364,11 @@ export default function Contacts() {
               {visible.map((c) => {
                 const clientCount = c.clients?.length || 0
                 const brandCount = (c.clients || []).reduce((n, cl) => n + (cl.brands?.length || 0), 0)
+                const isStale = staleIds.has(c.id)
                 return (
                   <li
                     key={c.id}
+                    data-contact-id={c.id}
                     className={`contact-row ${selectedContactId === c.id ? 'selected' : ''}`}
                     onClick={() => setSelectedContactId(c.id)}
                     role="button"
@@ -291,7 +383,10 @@ export default function Contacts() {
                       </div>
                     </div>
                     <div className="contact-row-meta">
-                      <StatusPill status={c.status} />
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <StagePill stage={c.stage} />
+                        {isStale && <StaleBadge />}
+                      </div>
                       <div className="contact-row-counts">
                         {clientCount} client{clientCount === 1 ? '' : 's'} · {brandCount} brand{brandCount === 1 ? '' : 's'}
                       </div>
@@ -312,6 +407,7 @@ export default function Contacts() {
             <ContactDetail
               contact={selected}
               financials={financials}
+              isStale={staleIds.has(selected.id)}
               onEditContact={() => setModalState({ kind: 'contact', data: selected })}
               onAddClient={() => setModalState({ kind: 'client', data: { contactId: selected.id } })}
               onEditClient={(client) => setModalState({ kind: 'client', data: { contactId: selected.id, client } })}
@@ -361,6 +457,7 @@ export default function Contacts() {
 function ContactDetail({
   contact,
   financials,
+  isStale,
   onEditContact,
   onAddClient,
   onEditClient,
@@ -398,13 +495,29 @@ function ContactDetail({
           </div>
         </div>
         <div className="detail-header-actions">
-          <StatusPill status={contact.status} />
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <StagePill stage={contact.stage} />
+            {isStale && <StaleBadge />}
+          </div>
           <button className="btn btn-link" onClick={onEditContact}>Edit</button>
         </div>
       </div>
 
+      {contact.lead_source && (
+        <div className="detail-sub" style={{ marginTop: -4, fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-lo)' }}>
+          Source · {contact.lead_source}
+        </div>
+      )}
+
       {contact.notes && (
         <div className="detail-note">{contact.notes}</div>
+      )}
+
+      {contact.lead_notes && (
+        <div className="detail-note" style={{ borderLeftColor: STAGE_COLOR[contact.stage] || 'var(--border-strong)' }}>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>Lead notes</div>
+          {contact.lead_notes}
+        </div>
       )}
 
       <div className="detail-money">

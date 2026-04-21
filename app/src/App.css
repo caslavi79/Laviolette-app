@@ -1064,6 +1064,14 @@ body.modal-open { overflow: hidden; }
   background: var(--copper-soft);
   box-shadow: inset 3px 0 0 var(--copper);
 }
+.contact-row--flash {
+  animation: contact-flash 3s ease-out;
+}
+@keyframes contact-flash {
+  0%   { background: rgba(184, 132, 90, 0.25); box-shadow: 0 0 0 2px var(--copper); }
+  50%  { background: rgba(184, 132, 90, 0.12); box-shadow: 0 0 0 2px var(--copper-dim); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+}
 .contact-row-main { min-width: 0; flex: 1; }
 .contact-row-name {
   font-family: var(--serif);
