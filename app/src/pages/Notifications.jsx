@@ -129,13 +129,25 @@ export default function Notifications() {
                     </div>
                     {tab === 'open' && (
                       <div className="notification-actions">
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => retry(row)}
-                          disabled={busyId === row.id}
-                        >
-                          {busyId === row.id ? 'Retrying…' : 'Retry send'}
-                        </button>
+                        {/* Hide Retry for audit-only rows. retry-notification's payload
+                            contract requires from/html/to/subject; internal-kind rows
+                            emitted by contract-sign's unified-onboarding failure path
+                            (and similar audit callsites) lack email payload fields and
+                            400 on retry. For those rows, only Dismiss makes sense —
+                            Case acts on the alert manually. */}
+                        {(row.kind === 'internal' && !(row.payload?.from && row.payload?.html)) ? (
+                          <span className="dlq-row-audit-hint" style={{ fontSize: 12, color: 'var(--text-lo)', fontStyle: 'italic' }}>
+                            Audit only · dismiss when handled
+                          </span>
+                        ) : (
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => retry(row)}
+                            disabled={busyId === row.id}
+                          >
+                            {busyId === row.id ? 'Retrying…' : 'Retry send'}
+                          </button>
+                        )}
                         <button
                           className="btn btn-secondary"
                           onClick={() => dismiss(row)}
