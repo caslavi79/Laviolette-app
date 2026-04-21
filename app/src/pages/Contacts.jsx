@@ -13,19 +13,23 @@ const STATUS_COLOR = {
   active: COLORS.green,
   past:   COLORS.slate,
 }
-const STAGE_COLOR = {
-  lead:     '#9B8B73',
-  proposal: COLORS.copper,
-  active:   COLORS.green,
-  past:     COLORS.slate,
-  dead:     COLORS.steel,
+// lead_stage enum → color. Neutral tan for early pipeline, copper for
+// mid, amber-warm for ready-to-close, muted for terminal.
+const LEAD_STAGE_COLOR = {
+  initial_contact: '#9B8B73',
+  discovery:       '#9B8B73',
+  quoted:          COLORS.copper,
+  negotiating:     COLORS.copper,
+  ready_to_sign:   COLORS.amber,
+  lost:            COLORS.steel,
 }
-const STAGE_LABEL = {
-  lead:     'lead',
-  proposal: 'proposal',
-  active:   'active',
-  past:     'past',
-  dead:     'dead',
+const LEAD_STAGE_LABEL = {
+  initial_contact: 'lead',
+  discovery:       'discovery',
+  quoted:          'quoted',
+  negotiating:     'negotiating',
+  ready_to_sign:   'ready to sign',
+  lost:            'lost',
 }
 const BRAND_STATUS_COLOR = {
   active:     COLORS.green,
@@ -33,14 +37,34 @@ const BRAND_STATUS_COLOR = {
   offboarded: COLORS.slate,
 }
 
+// Pipeline stages = live leads. 'lost' is terminal; contacts.status
+// handles active/past. Used to decide whether to surface lead_details
+// vs. fall back to contacts.status for the pill.
+const PIPELINE_STAGES = ['initial_contact','discovery','quoted','negotiating','ready_to_sign']
+
+function leadDetailsOf(contact) {
+  const arr = contact?.lead_details
+  if (!arr) return null
+  if (Array.isArray(arr)) return arr[0] || null
+  return arr
+}
+
 function StatusPill({ status, map = STATUS_COLOR }) {
   const color = map[status] || COLORS.steel
   return <span style={badgeStyle(color)}>{status}</span>
 }
 
-function StagePill({ stage }) {
-  const color = STAGE_COLOR[stage] || COLORS.steel
-  return <span style={badgeStyle(color)}>{STAGE_LABEL[stage] || stage}</span>
+// Renders lead_details.stage when present, falling back to
+// contacts.status (party_status enum) when the contact has no
+// lead_details row.
+function StagePill({ contact }) {
+  const ld = leadDetailsOf(contact)
+  if (ld) {
+    const color = LEAD_STAGE_COLOR[ld.stage] || COLORS.steel
+    return <span style={badgeStyle(color)}>{LEAD_STAGE_LABEL[ld.stage] || ld.stage}</span>
+  }
+  const color = STATUS_COLOR[contact.status] || COLORS.steel
+  return <span style={badgeStyle(color)}>{contact.status}</span>
 }
 
 function StaleBadge() {
@@ -155,6 +179,7 @@ export default function Contacts() {
         .from('contacts')
         .select(`
           *,
+          lead_details (*),
           clients (
             *,
             brands (*)
@@ -242,24 +267,32 @@ export default function Contacts() {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = contacts.filter((c) => {
-      if (stageFilter === 'all' && c.stage === 'dead') return false
-      if (stageFilter === 'past_dead' && !['past','dead'].includes(c.stage)) return false
-      if (!['all','past_dead'].includes(stageFilter) && c.stage !== stageFilter) return false
+      const ld = leadDetailsOf(c)
+      const inPipeline = ld && PIPELINE_STAGES.includes(ld.stage)
+      const isLost     = ld && ld.stage === 'lost'
+
+      if (stageFilter === 'all' && isLost) return false
+      if (stageFilter === 'leads'  && !inPipeline) return false
+      if (stageFilter === 'active' && !(c.status === 'active' && !inPipeline)) return false
+      if (stageFilter === 'past'   && c.status !== 'past') return false
+      if (stageFilter === 'lost'   && !isLost) return false
+
       if (!q) return true
       const haystack = [
-        c.name, c.email, c.phone, c.lead_source, c.lead_notes,
+        c.name, c.email, c.phone,
+        ld?.referred_by, ld?.notes, ld?.next_step, ld?.scope_summary,
         ...(c.clients || []).flatMap((cl) => [cl.name, cl.legal_name, cl.billing_email]),
         ...(c.clients || []).flatMap((cl) => (cl.brands || []).flatMap((b) => [b.name, b.instagram_handle])),
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(q)
     })
-    // Stale first, then most-recently-contacted. Null last_contacted sorts oldest.
+    // Stale first, then most-recently-contacted. Null last_contact_date sorts oldest.
     return [...filtered].sort((a, b) => {
       const aStale = staleIds.has(a.id) ? 1 : 0
       const bStale = staleIds.has(b.id) ? 1 : 0
       if (aStale !== bStale) return bStale - aStale
-      const at = a.last_contacted_at || ''
-      const bt = b.last_contacted_at || ''
+      const at = leadDetailsOf(a)?.last_contact_date || ''
+      const bt = leadDetailsOf(b)?.last_contact_date || ''
       return bt.localeCompare(at)
     })
   }, [contacts, search, stageFilter, staleIds])
@@ -333,11 +366,11 @@ export default function Contacts() {
         />
         <div className="toolbar-filters">
           {[
-            { key: 'all',       label: 'all' },
-            { key: 'lead',      label: 'leads' },
-            { key: 'proposal',  label: 'proposals' },
-            { key: 'active',    label: 'active' },
-            { key: 'past_dead', label: 'past/dead' },
+            { key: 'all',    label: 'all' },
+            { key: 'leads',  label: 'leads' },
+            { key: 'active', label: 'active' },
+            { key: 'past',   label: 'past' },
+            { key: 'lost',   label: 'lost' },
           ].map((f) => (
             <button
               key={f.key}
@@ -400,7 +433,7 @@ export default function Contacts() {
                     </div>
                     <div className="contact-row-meta">
                       <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <StagePill stage={c.stage} />
+                        <StagePill contact={c} />
                         {isStale && <StaleBadge />}
                       </div>
                       <div className="contact-row-counts">
@@ -512,29 +545,63 @@ function ContactDetail({
         </div>
         <div className="detail-header-actions">
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <StagePill stage={contact.stage} />
+            <StagePill contact={contact} />
             {isStale && <StaleBadge />}
           </div>
           <button className="btn btn-link" onClick={onEditContact}>Edit</button>
         </div>
       </div>
 
-      {contact.lead_source && (
-        <div className="detail-sub" style={{ marginTop: -4, fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-lo)' }}>
-          Source · {contact.lead_source}
-        </div>
-      )}
+      {(() => {
+        const ld = leadDetailsOf(contact)
+        if (!ld) return null
+        const sourceLabel = ld.referred_by
+          ? `referral — ${ld.referred_by}`
+          : (ld.source ? ld.source.replace(/_/g, ' ') : null)
+        return sourceLabel ? (
+          <div className="detail-sub" style={{ marginTop: -4, fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-lo)' }}>
+            Source · {sourceLabel}
+          </div>
+        ) : null
+      })()}
 
       {contact.notes && (
         <div className="detail-note">{contact.notes}</div>
       )}
 
-      {contact.lead_notes && (
-        <div className="detail-note" style={{ borderLeftColor: STAGE_COLOR[contact.stage] || 'var(--border-strong)' }}>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Lead notes</div>
-          {contact.lead_notes}
-        </div>
-      )}
+      {(() => {
+        const ld = leadDetailsOf(contact)
+        if (!ld) return null
+        const pillColor = LEAD_STAGE_COLOR[ld.stage] || 'var(--border-strong)'
+        return (
+          <>
+            {ld.scope_summary && (
+              <div className="detail-note" style={{ borderLeftColor: pillColor }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Scope</div>
+                {ld.scope_summary}
+              </div>
+            )}
+            {ld.next_step && (
+              <div className="detail-note" style={{ borderLeftColor: pillColor }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Next step</div>
+                {ld.next_step}
+              </div>
+            )}
+            {ld.notes && (
+              <div className="detail-note" style={{ borderLeftColor: pillColor }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Lead notes</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{ld.notes}</div>
+              </div>
+            )}
+            {ld.stage === 'lost' && ld.lost_reason && (
+              <div className="detail-note" style={{ borderLeftColor: COLORS.steel }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Lost reason</div>
+                {ld.lost_reason}
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       <div className="detail-money">
         <div><span className="eyebrow">Paid to date</span><strong>{fmtMoneyShort(totalPaid)}</strong></div>

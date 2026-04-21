@@ -171,13 +171,15 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   Successful payment, Refund, Failed payment, Subscription, Customer update.
   Leave ACH mandate ON (NACHA requires written authorization record).
   All client email touchpoints come from our Resend pipeline.
-- 🟡 **Duplicate lead-tracking columns on `contacts`** — prompt #1
-  (2026-04-21) added `stage` / `lead_source` / `last_contacted_at` /
-  `next_touch_at` / `lead_notes` on `contacts`, not realizing the
-  existing `lead_details` table already modeled the same thing (enum
-  columns: `stage`, `source`, `last_contact_date`, `next_follow_up`,
-  `notes`). Cleanup queued for next session. See HANDOFF.md
-  "Known architectural issue" section.
+- ✅ **Lead tracking unified on `lead_details`** (2026-04-21
+  cleanup, migration `20260421000001`). The five thin columns that
+  were added to `contacts` in 2026-04-20 (`stage`, `lead_source`,
+  `last_contacted_at`, `next_touch_at`, `lead_notes`) were
+  backfilled into `lead_details` and dropped. `v_stale_leads` now
+  reads from `lead_details.last_contact_date` /
+  `lead_details.next_follow_up` / `lead_details.stage`. Contacts +
+  EditContactModal + Today stale widget all rewired. `contacts.status`
+  (party_status enum) stays as-is — it's orthogonal.
 
 ---
 
@@ -699,9 +701,12 @@ single-user app).
 - PWA install on iPhone home screen (add service worker)
 - Supabase Realtime for live-updating Today screen
 - Client-facing invoice portal (view invoices, self-serve bank update)
-- Lead pipeline UI (`lead_details` table exists but no screen — **partial
-  duplication landed 2026-04-21 on `contacts.*` columns; refactor-to-
-  `lead_details` is the queued FIRST prompt for next session**)
+- Lead pipeline UI full surface — Contacts + EditContactModal now
+  read/write `lead_details` directly (2026-04-21 cleanup), but
+  several richer fields remain unsurfaced: `scope_summary` +
+  `deck_url` + `quoted_amount` + `quoted_recurring` + `lost_reason`
+  are displayed read-only in the detail pane but not editable in the
+  form. Deferred until Case needs them.
 - Server-side PDF rendering for signed contracts (currently browser print-to-PDF works fine)
 - Tax export CSV (Money page mentions it but no UI — defer until first year-end)
 

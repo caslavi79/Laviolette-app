@@ -262,7 +262,7 @@ export default function Today() {
       // Stale leads (view encapsulates the rule — don't recompute here)
       const { data: staleRows } = await supabase
         .from('v_stale_leads')
-        .select('contact_id, name, stage, days_since_contact, next_touch_at, reason')
+        .select('contact_id, name, stage, days_since_contact, next_follow_up, reason')
         .order('days_since_contact', { ascending: false, nullsFirst: true })
       setStaleLeads(staleRows || [])
 
@@ -649,16 +649,11 @@ export default function Today() {
             )
           })}
           {staleLeads.map((s) => {
-            const isOverdue = s.reason === 'overdue_touch'
-            const sub = isOverdue
-              ? `Overdue follow-up — was due ${fmtDate(s.next_touch_at, { month: 'short', day: 'numeric' })}`
-              : (s.days_since_contact == null
-                  // days_since_contact is NULL only when last_contacted_at
-                  // IS NULL in v_stale_leads — i.e. this lead has never
-                  // been touched. "Never contacted" reads as a real
-                  // status rather than a missing-data bug.
-                  ? 'Never contacted'
-                  : `${s.days_since_contact} day${s.days_since_contact === 1 ? '' : 's'} since contact`)
+            const sub = s.reason === 'overdue_touch'
+              ? `Follow-up overdue (was due ${fmtDate(s.next_follow_up, { month: 'short', day: 'numeric' })})`
+              : s.reason === 'never_contacted'
+                ? 'Never contacted'
+                : `No contact logged in ${s.days_since_contact}d`
             return (
               <Link
                 key={`stale-${s.contact_id}`}
