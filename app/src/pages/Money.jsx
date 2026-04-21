@@ -8,6 +8,19 @@ import EditExpenseModal from '../components/forms/EditExpenseModal'
 
 const TABS = ['invoices', 'revenue', 'expenses']
 
+// YYYY-MM-DD string-slice date helpers. Avoid the UTC→local year/month flip
+// bug that `new Date('2027-01-01').getFullYear()` produces in CT (UTC midnight
+// Jan 1 is Dec 31 18:00 local → returns 2026). String-slicing sidesteps
+// timezone entirely. Kept at module scope so both RevenueTab and ExpensesTab
+// can share them (each tab passes its own `year` — RevenueTab's is a const,
+// ExpensesTab's is stateful).
+const yearMatches = (dateStr, year) =>
+  typeof dateStr === 'string' && dateStr.slice(0, 4) === String(year)
+const dateInMonth = (dateStr, year, month) =>
+  typeof dateStr === 'string'
+    && dateStr.slice(0, 4) === String(year)
+    && parseInt(dateStr.slice(5, 7), 10) === month + 1
+
 export default function Money() {
   const [params, setParams] = useSearchParams()
   const activeTab = TABS.includes(params.get('tab')) ? params.get('tab') : 'invoices'
@@ -464,16 +477,13 @@ function RevenueTab() {
     // Only count invoices that are actually paid (or partially paid). A stray paid_date on a
     // 'pending' row (e.g., an ACH still clearing) should NOT count as revenue yet.
     if (i.status !== 'paid' && i.status !== 'partially_paid') return false
-    if (!i.paid_date) return false
-    const d = new Date(i.paid_date + 'T00:00:00')
-    return d.getFullYear() === year && d.getMonth() === m
+    return dateInMonth(i.paid_date, year, m)
   })
 
   const totalIn = (rows) => rows.reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
-  const expensesIn = (m) => expenses.filter((e) => {
-    const d = new Date(e.date + 'T00:00:00')
-    return d.getFullYear() === year && d.getMonth() === m
-  }).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const expensesIn = (m) => expenses
+    .filter((e) => dateInMonth(e.date, year, m))
+    .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
   const monthLabel = (m) => new Date(year, m, 1).toLocaleDateString('en-US', { month: 'short' })
 
@@ -507,12 +517,8 @@ function RevenueTab() {
       .sort((a, b) => b.total - a.total)
   }, [invoices, clients])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Year extraction from YYYY-MM-DD strings directly avoids the UTC→local-year
-  // flip bug: `new Date('2027-01-01').getFullYear()` in CT returns 2026 (because
-  // UTC midnight Jan 1 is Dec 31 6pm local). String-slicing sidesteps timezone entirely.
-  const yearMatches = (dateStr) => typeof dateStr === 'string' && dateStr.slice(0, 4) === String(year)
-  const ytdReceived = invoices.filter((i) => i.paid_date && yearMatches(i.paid_date)).reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
-  const ytdExpenses = expenses.filter((e) => yearMatches(e.date)).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const ytdReceived = invoices.filter((i) => i.paid_date && yearMatches(i.paid_date, year)).reduce((s, i) => s + (i.status === 'partially_paid' ? (parseFloat(i.paid_amount) || 0) : (parseFloat(i.total) || 0)), 0)
+  const ytdExpenses = expenses.filter((e) => yearMatches(e.date, year)).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
   if (loading) return <div className="loading">Loading…</div>
 
@@ -606,7 +612,7 @@ function ExpensesTab() {
   useEffect(() => { load() }, [load])
 
   const filtered = useMemo(() => expenses.filter((e) => {
-    if (year !== 'all' && new Date(e.date).getFullYear() !== year) return false
+    if (year !== 'all' && !yearMatches(e.date, year)) return false
     if (filterCat !== 'all' && e.category !== filterCat) return false
     return true
   }), [expenses, year, filterCat])
@@ -628,7 +634,10 @@ function ExpensesTab() {
 
   const years = useMemo(() => {
     const s = new Set([new Date().getFullYear()])
-    for (const e of expenses) s.add(new Date(e.date).getFullYear())
+    for (const e of expenses) {
+      const y = parseInt(e.date?.slice(0, 4), 10)
+      if (Number.isFinite(y)) s.add(y)
+    }
     return [...s].sort((a, b) => b - a)
   }, [expenses])
 
