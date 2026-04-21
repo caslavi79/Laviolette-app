@@ -609,6 +609,20 @@ Full end-to-end cycle against a disposable buildout contract with
   customer `cus_UNW150fcvgvWJn` kept as audit trail. LV-001..006
   fingerprints identical to the pre-test baseline.
 
+**Phase 6 follow-up (2026-04-21, same day):** added a 6-step
+"What to expect" numbered list to the CTA block in `send-invoice`'s
+email template, motivated by Nicole + Dustin both missing the final
+"Set Up Bank Account" click in Stripe Checkout. Step 5's warning
+renders in copper to draw the eye. Re-validated by recreating the
+disposable test scaffold (reused `cus_UNW150fcvgvWJn`), signing a
+second test buildout, then clicking Regenerate — both emails delivered
+with the updated copy, copper warning confirmed on mobile. Scoped
+exclusively to the CTA block; retainer / null-`bank_link_url`
+invoices render identically to pre-change. Shipped in commit
+`d160e36 feat(email): add 6-step bank-link setup instructions to
+unified invoice CTA`. Test scaffold cleaned up post-validation;
+LV-001..006 fingerprints still identical to every prior snapshot.
+
 ### Flow through a unified buildout onboarding
 
 ```
@@ -911,6 +925,6 @@ single-user app).
 | DB clients | 5 real (VBTX, Velvet Leaf, Exodus 1414 draft, Nicole James lead→active-in-flight, Viktoriia Jones lead→active-in-flight) |
 | Contracts | 4 signed (Dustin) + 1 draft (Exodus) + **2 signed 2026-04-21 extended** (Nicole, Viktoriia) — both buildouts, Variant C, $1,700 each, ACH fired same day |
 | Last frontend deploy | 2026-04-21 unified-onboarding: `index-BKS968Ck.js` / `index-DXISWbym.css` (Money.jsx adds Regenerate bank-link button conditional on `bank_link_url` set — retainer rows unchanged). |
-| Last edge-function deploy | 2026-04-21 unified-onboarding: `contract-sign`, `send-invoice`, `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=true` (flipped from false after OFF→ON→Regenerate end-to-end test passed same day). `deploy-edge.sh` now lists 19 (added `regenerate-bank-link`). |
+| Last edge-function deploy | 2026-04-21 Phase 6: `send-invoice` re-deployed with a 6-step "What to expect" list inside the unified CTA block (commit `d160e36`). Earlier in day: `contract-sign` + `send-invoice` + `regenerate-bank-link` deployed individually via `npx supabase functions deploy <name> --no-verify-jwt`. Flag `ENABLE_UNIFIED_ONBOARDING=true` (flipped from false after OFF→ON→Regenerate end-to-end test passed same day). `deploy-edge.sh` lists 19 (added `regenerate-bank-link`). |
 | Last DB cleanup | 2026-04-21 base (smoke-test residue) + 2026-04-21 extended (deleted orphan LV-2026-006 pre-cleanup before recreating as the real Viktoriia invoice) |
 | Unpushed local commits on `main` | **0** — all 30 commits from 2026-04-21 (27 extended + 3 unified-onboarding) pushed at session end. Origin HEAD matches local HEAD at `9165446`. |
