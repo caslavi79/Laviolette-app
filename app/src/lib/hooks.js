@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect } from 'react'
 
 /* Calls onClose when Escape is pressed. */
 export function useEscapeKey(onClose) {
@@ -41,18 +41,3 @@ export function useBodyLock() {
   }, [])
 }
 
-/* Simple toast controller. Usage:
- *   const [toast, setToast] = useState('')
- *   const showToast = useToast()
- *   showToast(setToast, 'Saved')
- */
-export function useToast() {
-  const timerRef = useRef(null)
-  const show = useCallback((setToast, msg, duration = 3000) => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    setToast(msg)
-    timerRef.current = setTimeout(() => setToast(''), duration)
-  }, [])
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-  return show
-}

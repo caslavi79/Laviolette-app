@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { fmtMoneyShort, fmtDate, badgeStyle, COLORS } from '../lib/format'
+import { fmtMoneyShort, badgeStyle, COLORS } from '../lib/format'
 import EditContactModal from '../components/forms/EditContactModal'
 import EditClientModal from '../components/forms/EditClientModal'
 import EditBrandModal from '../components/forms/EditBrandModal'

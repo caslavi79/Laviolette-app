@@ -1,16 +1,6 @@
 /* Shared formatting utilities. Ported from the Sheepdog reference
  * project; same semantics for date + money parsing. */
 
-export function fmtMoney(n) {
-  if (n == null || n === '') return '—'
-  const v = parseFloat(n)
-  if (!Number.isFinite(v)) return '—'
-  return `$${v.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
-
 export function fmtMoneyShort(n) {
   if (n == null || n === '') return '—'
   const v = parseFloat(n)
@@ -33,18 +23,6 @@ export function fmtDate(d, opts = { month: 'short', day: 'numeric', year: 'numer
   return dt.toLocaleDateString('en-US', opts)
 }
 
-export function fmtDateShort(d) {
-  return fmtDate(d, { month: 'short', day: 'numeric' })
-}
-
-export function fmtDow(d) {
-  if (!d) return ''
-  const raw = typeof d === 'string' && d.includes('T') ? d.split('T')[0] : d
-  const [y, m, day] = String(raw).split('-').map(Number)
-  const dt = new Date(y, m - 1, day)
-  return dt.toLocaleDateString('en-US', { weekday: 'long' })
-}
-
 export function daysUntil(d) {
   if (!d) return null
   const raw = typeof d === 'string' && d.includes('T') ? d.split('T')[0] : d
@@ -52,15 +30,6 @@ export function daysUntil(d) {
   const exp = new Date(y, m - 1, day)
   const now = new Date(); now.setHours(0, 0, 0, 0)
   return Math.ceil((exp - now) / (1000 * 60 * 60 * 24))
-}
-
-export function daysSince(d) {
-  if (!d) return null
-  const raw = typeof d === 'string' && d.includes('T') ? d.split('T')[0] : d
-  const [y, m, day] = String(raw).split('-').map(Number)
-  const then = new Date(y, m - 1, day)
-  const now = new Date(); now.setHours(0, 0, 0, 0)
-  return Math.ceil((now - then) / (1000 * 60 * 60 * 24))
 }
 
 export function badgeStyle(c) {

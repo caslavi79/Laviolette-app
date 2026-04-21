@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import Modal from '../Modal'
-import { Field, TextField, TextareaField, SelectField } from '../Field'
+import { TextField, TextareaField, SelectField } from '../Field'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_OPTS = [
