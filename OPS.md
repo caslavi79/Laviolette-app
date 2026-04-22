@@ -119,12 +119,32 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Current state (as of 2026-04-22)
 
-- ✅ **Database** — **32 migrations applied** (full list + tracking in
-  `public._claude_migrations`; most recent: `20260422000005_backfill_comments_and_cron_active`
-  backfills 11 missing column COMMENTs + refreshes projects.status /
-  health_checks.source COMMENTs + extends get_last_cron_runs() with
-  `active` for /health filtering). RLS on every table. Direct-pg
-  connection on port 5432 (pooler 6543 broken — use direct).
+- ✅ **Database** — **34 migrations applied** (full list + tracking in
+  `public._claude_migrations`). 2026-04-22 adds:
+  `20260423000001_work_log_sessions` (session_id + started_at +
+  ended_at on `work_log` — backing Log Work v2 session-grouped UI),
+  `20260424000001_schedule_flexible_times` (replaces rigid
+  `time_block` enum with `start_time` + `end_time` on both schedule
+  tables, adds `kind` enum {focus|event|blackout} on overrides,
+  adds `updated_at` trigger to overrides). RLS on every table.
+  Direct-pg connection on port 5432 (pooler 6543 broken — use direct).
+- ✅ **Log Work v2** — `LogWorkModal` now takes a time window +
+  multi-select tasks + shared notes, inserts N rows with a shared
+  `session_id`. Today tally shows `N items · M sessions` subtitle;
+  expand-list groups by session. ActivityTab shows time-range
+  display per row when `started_at` is present. Recap aggregator
+  (`generate-monthly-recaps`) unchanged — sessions are invisible
+  to the per-service+month grouping. Shipped 2026-04-22 commit
+  `232f1db`.
+- ✅ **Schedule v2 (agenda)** — `/schedule` replaced the rigid
+  7×3 grid (AM/PM/all-day cells per brand) with a vertical timeline
+  agenda. Flexible time ranges, overlay semantics for exceptions.
+  `kind` taxonomy: `focus` (deep-work block for a brand),
+  `event` (one-off meeting), `blackout` (day off; hides
+  overlapping template blocks). Clarified UI copy: "override day"
+  → "exception" / specific kind. Full rewrite of Schedule.jsx +
+  EditScheduleBlockModal.jsx. Mobile: stacked-day accordion.
+  Shipped 2026-04-22 commit `30e6117`.
 - 🔴 **Auto-charge FLAGGED OFF** as of 2026-04-21 (commit `64dd603`).
   `ENABLE_AUTO_CHARGE=false` on Supabase secrets. Both
   `laviolette_auto_push_invoices` + `_retry` cron jobs deactivated via
@@ -950,7 +970,7 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 32 (most recent: `20260422000005_backfill_comments_and_cron_active.sql` — backfills 11 missing column COMMENTs on health_checks/monthly_recaps/work_log + refreshes projects.status + health_checks.source COMMENTs + adds `active` to get_last_cron_runs() so /health can filter inactive jobs). `_claude_migrations` row count matches filesystem. |
+| Migrations applied | 34 (most recent: `20260424000001_schedule_flexible_times.sql` — replaces the rigid time_block enum with start_time/end_time on both schedule tables + adds kind taxonomy {focus|event|blackout} on overrides + updated_at trigger. Preceded by `20260423000001_work_log_sessions.sql` — adds session_id + started_at + ended_at for the Log Work v2 session-grouped flow). `_claude_migrations` row count matches filesystem. |
 | Edge functions deployed | 19 production (in `deploy-edge.sh`) + `run-pipeline-test` manual = 20 deployable. Plus `_shared/` helpers (import-only, not a function) = 21 directories total. `deploy-edge.sh` pinned to `supabase@2.93.0`, now also sets `DEPLOY_SHA` secret before each deploy. |
 | Webhook events subscribed | 14 |
 | Cron jobs | 9 defined, **7 active** — `laviolette_auto_push_invoices` + `_retry` deactivated 2026-04-21 (auto-charge kill-switch). `/health` excludes `active=false` jobs from stale-cron alerts via migration 20260422000005 RPC update. |
@@ -964,7 +984,7 @@ single-user app).
 | Contracts | 7 — Dustin's 4 (3 retainers + 1 buildout) + Nicole + Viktoriia (both signed 2026-04-21, Variant C buildouts) + Exodus 1414 (draft buildout, marker-regenerated 2026-04-21). |
 | Projects by status | 3 scheduled (Dustin's 3 retainers, start_date 2026-05-01) + 3 active (Citrus and Salt Buildout start_date=Apr 15, Nicole + Viktoriia buildouts start_date=today) + 1 draft (Exodus). Flip to active at 05:05 CT on each project's start_date via `advance-contract-status`. |
 | Lead details rows | 3 (Cody Welch, Nicole James, Viktoriia Jones). Dustin correctly absent (customer, not lead). |
-| Last frontend deploy | 2026-04-22 post-audit sweep: `index-B9RPNJ_W.js` / `index-DXISWbym.css` — bundles Contacts ContactDetail lead-gate, EditContactModal validation, Incidents row=img + truncation hint, Today workOpen reset, Projects unknown-type fallback, filter-pill aria-pressed rollout, Money/Contracts aria-pressed, LogWorkModal left-join, EditProjectModal state-machine validation. |
+| Last frontend deploy | 2026-04-22 Log Work v2 + Schedule v2: `index-ChcwEu8K.js` / `index-B0TGVw_f.css` — bundles session-grouped LogWorkModal (time window + multi-task + shared notes, batch insert with shared session_id), agenda-style Schedule.jsx (vertical timeline, flexible time ranges, overlay semantics), EditScheduleBlockModal v2 (kind picker + native time inputs + preset chips + notes field), Today.jsx session tally subtitle + session expand-list grouping + time-range primary-brand header. |
 | Last edge-function deploy | 2026-04-22 post-audit sweep: `check-overdue-invoices`, `send-reminders`, `stripe-webhook`, `contract-sign`, `generate-daily-rounds`, `auto-push-invoices`, `regenerate-bank-link`, `generate-monthly-recaps`, `send-monthly-recap`, `health` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt`. Covers PI-null filters (C1), type=retainer gate, mandate.updated inactive-only, charge.refunded status table, payment_intent.succeeded paid_amount, post-commit side-effect try/catch, idempotency-cleanup DLQ, CT date routing, scheduled-status rounds, blocked-query project filter, DLQ payload error field, metadata-backfill soft DLQ, URL composition via new URL(), kill-switch log line, monthly-recaps context-prefix rename + destructure error, self-BCC skip, buildMessage prioritize DLQ, active-filter on stale_crons. Flags `ENABLE_UNIFIED_ONBOARDING=true` + `ENABLE_AUTO_CHARGE=false` on Supabase secrets. |
 | Last DB cleanup | 2026-04-21 Phase 6 extended (deleted Phase 6 test scaffold in single transaction; kept Stripe customer `cus_UNW150fcvgvWJn` as audit trail). |
 | Last DB repair | 2026-04-22 post-audit sweep: `UPDATE public._claude_migrations SET checksum='7a5ebe4f' WHERE version='20260422000004'` (Agent 10 CRITICAL — file hash on disk had drifted from the applied checksum, blocking future `apply-migrations.mjs` runs). Migration `20260422000005` then applied cleanly on top. |

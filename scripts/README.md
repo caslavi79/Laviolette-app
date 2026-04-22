@@ -226,3 +226,16 @@ digging through git history.
   already been applied). `npm run apply-migrations -- --dry-run`
   post-repair confirmed all 31 rows marked `[applied]` with zero
   `[MODIFIED]` entries, clearing the way for migration `20260422000005`.
+
+- **2026-04-22 Log Work + Schedule UX redesign** — two migrations
+  (`20260423000001_work_log_sessions.sql` + `20260424000001_schedule_
+  flexible_times.sql`) shipped in back-to-back commits (`232f1db` +
+  `30e6117`). The Schedule v2 migration dropped the `time_block` enum
+  after backfilling start_time/end_time on both schedule tables;
+  emergency rollback SQL lives in `scripts/reverse-migrations/
+  20260424000001_reverse.sql` — recreate the enum, re-derive time_block
+  from start_time, drop the new columns. The reverse script is NOT in
+  `supabase/migrations/` so the runner can't re-apply it in the forward
+  direction. If rollback is needed: deploy a pre-Schedule-v2 bundle
+  first, then run the reverse SQL via inline pg, then
+  `DELETE FROM public._claude_migrations WHERE version='20260424000001'`.
