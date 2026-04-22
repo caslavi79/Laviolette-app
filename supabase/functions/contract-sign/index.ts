@@ -419,6 +419,12 @@ Deno.serve(async (req: Request) => {
           // Stripe Checkout session FIRST so a failure leaves no orphan invoice
           const stripe = new Stripe(STRIPE_SECRET_KEY)
           const clientDisplayName = clientRow.legal_name || clientRow.name || ''
+          // Compose success_url via URL API so it remains correct even if
+          // STRIPE_SUCCESS_URL ever contains existing query params (naive
+          // string concat with `?client=` would produce a malformed URL
+          // with two `?` separators). Audit 2026-04-22 A2 LOW.
+          const successUrl = new URL(STRIPE_SUCCESS_URL)
+          successUrl.searchParams.set('client', clientDisplayName)
           let session: Stripe.Checkout.Session
           try {
             session = await stripe.checkout.sessions.create({
@@ -431,7 +437,7 @@ Deno.serve(async (req: Request) => {
                   verification_method: 'instant',
                 },
               },
-              success_url: `${STRIPE_SUCCESS_URL}?client=${encodeURIComponent(clientDisplayName)}`,
+              success_url: successUrl.toString(),
               cancel_url: STRIPE_CANCEL_URL,
               metadata: {
                 laviolette_contract_id: contract.id,
@@ -502,6 +508,31 @@ Deno.serve(async (req: Request) => {
               `contract=${contract.id} stripe_status=${statusCode} stripe_code=${errCode} ` +
               `msg=${errMsg.slice(0, 300)}`
             )
+            // Soft DLQ so audit-trail gap is visible — resolved=dismissed
+            // so it doesn't clutter the open-failures view. Audit 2026-04-22
+            // A2 LOW.
+            try {
+              await supabase.from('notification_failures').insert({
+                kind: 'internal',
+                context: `contract-sign:metadata-backfill:${session.id}`,
+                subject: `ℹ Stripe session metadata backfill failed (non-fatal)`,
+                to_email: CASE_NOTIFY,
+                error: errMsg.slice(0, 300),
+                payload: {
+                  contract_id: contract.id,
+                  invoice_id: newInv.id,
+                  invoice_number: newInv.invoice_number,
+                  session_id: session.id,
+                  stripe_status: statusCode,
+                  stripe_code: errCode,
+                  note: 'Session metadata only carries laviolette_contract_id; laviolette_invoice_id is missing. Webhook uses session.customer, so no runtime breakage — audit trail is degraded.',
+                },
+                resolved_at: new Date().toISOString(),
+                resolution: 'dismissed',
+              })
+            } catch (persistErr) {
+              console.error(`[contract-sign:unified] metadata-backfill DLQ insert failed: ${(persistErr as Error).message}`)
+            }
           }
           // Fire send-invoice fire-and-forget. send-invoice is idempotent via
           // sent_date and persists its own DLQ entries on Resend failure, so
@@ -541,6 +572,7 @@ Deno.serve(async (req: Request) => {
               project_id: contract.project_id,
               client_id: contract.client_id,
               stage: result.stage,
+              error: result.error.slice(0, 500),
               note: 'Contract is signed. Synthesis failed AFTER sign commit. Manual recovery: npm run stripe-setup for bank-link, then create invoice via Money tab.',
             },
           }).then(() => {}, (e) => console.error(`[contract-sign:unified] DLQ persist failed: ${(e as Error).message}`))

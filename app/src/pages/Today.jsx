@@ -336,6 +336,15 @@ export default function Today() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  // Reset the expand-list toggle when the logged-today count transitions
+  // to zero. Without this, `workOpen` stays true after all entries
+  // disappear (rare but possible: dev-mode refresh, manual row delete);
+  // the next time Case logs work the list auto-re-expands unexpectedly.
+  // Audit 2026-04-22 A8 LOW.
+  useEffect(() => {
+    if (todaysWork.length === 0 && workOpen) setWorkOpen(false)
+  }, [todaysWork.length, workOpen])
+
   /* Optimistically toggle a round's checked state + persist.
    * If no round row exists yet (fallback path), insert one. */
   const toggleRound = async (brandId, platform, currentRow) => {

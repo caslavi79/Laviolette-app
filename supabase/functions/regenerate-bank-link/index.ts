@@ -118,6 +118,11 @@ Deno.serve(async (req: Request) => {
     // Stripe FIRST. Per Case's design note: if this throws, the existing
     // (stale) bank_link_url stays in place. We never overwrite it with null.
     const clientDisplayName = clientRow.legal_name || clientRow.name || ''
+    // Compose success_url via URL API so it remains correct even if
+    // STRIPE_SUCCESS_URL ever contains existing query params. Audit
+    // 2026-04-22 A2 LOW (mirrors contract-sign fix).
+    const successUrl = new URL(STRIPE_SUCCESS_URL)
+    successUrl.searchParams.set('client', clientDisplayName)
     let session: Stripe.Checkout.Session
     try {
       session = await stripe.checkout.sessions.create({
@@ -130,7 +135,7 @@ Deno.serve(async (req: Request) => {
             verification_method: 'instant',
           },
         },
-        success_url: `${STRIPE_SUCCESS_URL}?client=${encodeURIComponent(clientDisplayName)}`,
+        success_url: successUrl.toString(),
         cancel_url: STRIPE_CANCEL_URL,
         metadata: {
           laviolette_invoice_id: inv.id,

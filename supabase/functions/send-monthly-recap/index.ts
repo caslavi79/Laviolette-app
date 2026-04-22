@@ -110,12 +110,16 @@ Deno.serve(async (req: Request) => {
   const html = sanitizeHtmlForSend(recap.html_body)
   const from = `Case Laviolette <${BRAND_FROM_EMAIL}>`
 
+  // Skip self-BCC when Case is both the sender (override) and the recipient —
+  // would otherwise put the same email in his inbox twice. Audit 2026-04-22
+  // A6 LOW.
+  const selfBcc = recipient.toLowerCase() === CASE_EMAIL.toLowerCase()
   const res = await sendClientEmail({
     apiKey: RESEND_API_KEY,
     from,
     replyTo: BRAND_REPLY_TO,
     to: recipient,
-    bcc: [CASE_EMAIL],
+    bcc: selfBcc ? undefined : [CASE_EMAIL],
     subject,
     html,
     context: `send-monthly-recap:${recap.id}`,

@@ -78,24 +78,31 @@ function fmtHoursAgo(h: number): string {
 }
 
 function buildMessage(stale: Array<{ jobname: string; hours_ago: number }>, dlq: number): string {
-  const parts: string[] = []
   if (stale.length === 0 && dlq < DLQ_THRESHOLD) {
     return 'All systems green.'
   }
+  // Prioritize DLQ — the UptimeRobot email subject preview truncates at
+  // ~78 chars on mobile notifications, so the first-surfaced signal is
+  // the one Case actually sees when glancing at his phone. Audit
+  // 2026-04-22 A7 LOW. Also drops the `laviolette_` prefix from
+  // jobnames and compacts `(X h)` → `Xh` for brevity.
+  const parts: string[] = []
+  if (dlq >= DLQ_THRESHOLD) {
+    parts.push(`${dlq} unresolved notif${dlq === 1 ? '' : 's'}.`)
+  }
   if (stale.length === 1) {
     const s = stale[0]
-    parts.push(`Stale: ${s.jobname} last ran ${fmtHoursAgo(s.hours_ago)} ago.`)
+    parts.push(`Stale: ${s.jobname.replace(/^laviolette_/, '')} ${fmtHoursAgo(s.hours_ago)} ago.`)
   } else if (stale.length > 1) {
     const summary = stale
-      .map((s) => `${s.jobname.replace(/^laviolette_/, '')} (${fmtHoursAgo(s.hours_ago)})`)
+      .map((s) => `${s.jobname.replace(/^laviolette_/, '')} ${fmtHoursAgo(s.hours_ago)}`)
       .join(', ')
-    parts.push(`${stale.length} stale crons: ${summary}.`)
+    parts.push(`${stale.length} stale: ${summary}.`)
   }
-  if (dlq >= DLQ_THRESHOLD) {
-    parts.push(`${dlq} unresolved notification failure${dlq === 1 ? '' : 's'}.`)
-  } else if (dlq > 0 && stale.length === 0) {
-    // Non-critical but still worth surfacing — doesn't flip healthy flag.
-    parts.push(`${dlq} unresolved notification failure${dlq === 1 ? '' : 's'} (under threshold).`)
+  if (dlq > 0 && dlq < DLQ_THRESHOLD && stale.length === 0) {
+    // Non-critical DLQ surfaced only when no crons are stale — doesn't
+    // flip healthy flag, mentioned so Case knows DLQ has rows queued.
+    parts.push(`${dlq} notif${dlq === 1 ? '' : 's'} (under threshold).`)
   }
   return parts.join(' | ')
 }

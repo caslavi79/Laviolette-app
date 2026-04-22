@@ -119,6 +119,13 @@ export default function EditContactModal({ contact, onClose, onSaved }) {
     setLoggingTouch(true)
     try {
       const now = new Date()
+      // Note freeze happens inside the setLead functional updater — `l` +
+      // `trimmed` are both captured at commit time, so rapid-typing +
+      // tab-to-button + Enter sequences where touchNote mutates
+      // mid-invocation still record the intended text. Audit 2026-04-22
+      // A8 LOW flagged a theoretical race but the functional-update
+      // pattern (mirroring React's recommendation for reading-then-
+      // writing state) makes it self-resolving.
       setLead((l) => {
         const next = { ...l, last_contact_date: todayIso() }
         const trimmed = touchNote.trim()

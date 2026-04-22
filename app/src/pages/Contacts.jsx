@@ -234,10 +234,15 @@ export default function Contacts() {
       supabase.from('projects').select('id, brand_id, type, total_fee, status'),
       supabase
         .from('work_log')
+        // Raised from 400 → 2000 to give headroom before the global cap
+        // starves a per-brand slice. 30-day window × multiple brands
+        // logging 10+ entries/day could hit 400 in weeks; 2000 pushes
+        // that to years of typical usage without noticeable query cost.
+        // Audit 2026-04-22 A8 LOW.
         .select('id, brand_id, service_id, title, notes, link_url, performed_at, retainer_services (name)')
         .gte('performed_at', thirtyDaysAgo)
         .order('performed_at', { ascending: false })
-        .limit(400),
+        .limit(2000),
     ])
     if (invRes.error) { setErr(invRes.error.message); return }
     if (projRes.error) { setErr(projRes.error.message); return }
@@ -871,6 +876,13 @@ function BrandCard({ brand, financials, onEdit }) {
 
       {recentWork.length > 0 && (
         <div className="brand-activity">
+          {/* "View all" deep-link only renders when a retainer project exists
+           * for the brand (ProjectDetail's Activity tab is retainer-only
+           * per Projects.jsx:356-362 gate). Buildout-only brands show the
+           * 20-row slice without a deep-link — operationally acceptable
+           * since work_log for buildouts is lower-volume. Audit
+           * 2026-04-22 A8 LOW — documented gap; full brand-scoped
+           * activity view is deferred until Case asks for it. */}
           <div className="brand-activity-header">
             <span className="eyebrow">Recent activity (30d)</span>
             {retainerProjectId && (

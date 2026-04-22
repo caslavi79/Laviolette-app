@@ -35,6 +35,18 @@ set -euo pipefail
 
 PROJECT_REF="sukcufgjptllzucbneuj"
 
+# Wire DEPLOY_SHA so /health's response body includes the short SHA of
+# the current deploy. Audit 2026-04-22 A7 LOW — prior behavior returned
+# "unknown" because the env var was never set anywhere. Requires a
+# clean git worktree rooted in the repo. Best-effort — if git rev-parse
+# fails (shell-only CI, no .git, etc.) we leave the secret alone and
+# /health keeps the "unknown" fallback.
+DEPLOY_SHA_VALUE="$(git rev-parse --short HEAD 2>/dev/null || true)"
+if [ -n "${DEPLOY_SHA_VALUE:-}" ]; then
+  echo "Setting DEPLOY_SHA secret to $DEPLOY_SHA_VALUE …"
+  npx supabase@2.93.0 secrets set "DEPLOY_SHA=$DEPLOY_SHA_VALUE" --project-ref "$PROJECT_REF" >/dev/null
+fi
+
 FUNCTIONS=(
   "advance-contract-status"
   "auto-push-invoices"

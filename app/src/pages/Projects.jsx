@@ -365,6 +365,20 @@ function ProjectDetail({
         <RecapsTab project={project} />
       )}
 
+      {/* Defensive fallback: if project.type is malformed (null or a
+       * future enum value neither buildout nor retainer), both
+       * tab-specific renders below skip and the user would see an
+       * empty pane. Render a hint pointing to EditProjectModal so the
+       * operator can correct the row. Audit 2026-04-22 A8 LOW. */}
+      {!isBuildout && !isRetainer && (
+        <div className="empty-state" style={{ padding: 24 }}>
+          <p>Unknown project type: <code>{String(project.type ?? 'null')}</code>.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-lo)' }}>
+            Edit the project to set type to <strong>buildout</strong> or <strong>retainer</strong>.
+          </p>
+        </div>
+      )}
+
       {tab === 'overview' && project.notes && <div className="detail-note">{project.notes}</div>}
 
       {tab === 'overview' && isBuildout && (

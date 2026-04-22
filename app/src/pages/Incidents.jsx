@@ -23,6 +23,7 @@ function staleBadges(stale) {
       {arr.map((s, i) => (
         <span
           key={i}
+          role="img"
           style={badgeStyle(COLORS.red)}
           title={`${s.hours_ago}h since last run`}
           aria-label={`${String(s.jobname || '').replace(/^laviolette_/, '')}: ${s.hours_ago} hours since last run`}
@@ -106,6 +107,11 @@ export default function Incidents() {
         </div>
       ) : (
         <div className="incidents-table-scroll" style={{ overflowX: 'auto' }}>
+          {rows.length >= 500 && (
+            <div style={{ padding: '6px 10px', marginBottom: 8, fontSize: 11, color: 'var(--text-lo)', borderLeft: '2px solid var(--border)', background: 'var(--surface-1)' }}>
+              Showing the 500 most recent rows. Toggle “Unhealthy only” for full 30-day incident history, or narrow the window in future revisions.
+            </div>
+          )}
           <table className="incidents-table">
             <thead>
               <tr>
@@ -124,6 +130,7 @@ export default function Incidents() {
                   <td>{fmtWhen(r.checked_at)}</td>
                   <td>
                     <span
+                      role="img"
                       style={badgeStyle(r.healthy ? COLORS.green : COLORS.red)}
                       aria-label={`HTTP ${r.http_status} — ${r.healthy ? 'healthy' : 'unhealthy'}`}
                     >

@@ -278,17 +278,24 @@ Deno.serve(async (req: Request) => {
     // 3a. Zero-activity DLQ alert — written BEFORE the recap insert so
     //     re-invocations still get the audit even when the recap row
     //     already exists (skipped_exists path below). Deduped by exact
-    //     context string: `monthly-recap:zero-activity:<project_id>:<monthIso>`.
-    //     Future queries for "all zero-activity alerts in May" can use:
-    //       WHERE context LIKE 'monthly-recap:zero-activity:%:2026-05-01'
+    //     context string. All DLQ rows written by this function share
+    //     the `generate-monthly-recaps:` prefix — makes observability
+    //     queries like `WHERE context LIKE 'generate-monthly-recaps:%'`
+    //     return every signal from this cron. Audit 2026-04-22 A6 LOW
+    //     (was previously `monthly-recap:zero-activity:…`).
     if (summary.zero_activity) {
-      const zeroCtx = `monthly-recap:zero-activity:${p.id}:${monthIso}`
+      const zeroCtx = `generate-monthly-recaps:zero-activity:${p.id}:${monthIso}`
       const { count: existingAlertCount } = await supabase
         .from('notification_failures')
         .select('id', { count: 'exact', head: true })
         .eq('context', zeroCtx)
       if ((existingAlertCount || 0) === 0) {
-        await supabase.from('notification_failures').insert({
+        // Destructure error so row-level failures (e.g. schema drift,
+        // CHECK violation) surface in logs — the .then().catch() pattern
+        // only catches transport errors because the Supabase client
+        // resolves with `{error}` instead of throwing. Audit 2026-04-22
+        // A6 LOW.
+        const { error: dlqErr } = await supabase.from('notification_failures').insert({
           kind: 'internal',
           context: zeroCtx,
           subject: `No activity logged for ${brand.name} in ${summary.month_label}`,
@@ -300,9 +307,8 @@ Deno.serve(async (req: Request) => {
             month: monthIso,
             hint: 'Review before send, or skip this month. Regenerate after logging late entries.',
           },
-        }).then(() => {}).catch((e) => {
-          console.error(`[generate-monthly-recaps] DLQ insert failed: ${(e as Error).message}`)
         })
+        if (dlqErr) console.error(`[generate-monthly-recaps] zero-activity DLQ insert failed: ${dlqErr.message}`)
       }
     }
 
@@ -361,16 +367,15 @@ Deno.serve(async (req: Request) => {
     })
     if (!emailRes.ok) {
       console.error(`[generate-monthly-recaps] HQ email failed: ${emailRes.error}`)
-      await supabase.from('notification_failures').insert({
+      const { error: dlqErr } = await supabase.from('notification_failures').insert({
         kind: 'internal',
         context: `generate-monthly-recaps:hq:${monthIso}`,
         subject: alertSubject,
         to_email: CASE_EMAIL,
         error: emailRes.error,
         payload: { from, html: alertHtml },
-      }).then(() => {}).catch((e) => {
-        console.error(`[generate-monthly-recaps] DLQ insert failed: ${(e as Error).message}`)
       })
+      if (dlqErr) console.error(`[generate-monthly-recaps] HQ-failure DLQ insert failed: ${dlqErr.message}`)
     }
   }
 

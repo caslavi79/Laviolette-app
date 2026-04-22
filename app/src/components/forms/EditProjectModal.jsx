@@ -59,6 +59,27 @@ export default function EditProjectModal({ project, brands, defaultBrandId, onCl
     setErr('')
     if (!form.brand_id) { setErr('Pick a brand.'); return }
     if (!form.name.trim()) { setErr('Project name required.'); return }
+    // Status-vs-start_date state-machine validation. The advance-contract-status
+    // cron flips scheduled → active only when start_date <= today. An operator
+    // saving `status='scheduled'` with no start_date (or a past start_date)
+    // would create an invisible row the cron never touches; saving
+    // `status='active'` with a future start_date bypasses the intended
+    // pre-engagement state. Audit 2026-04-22 A3 LOW.
+    if (form.status === 'scheduled') {
+      if (!form.start_date) { setErr('Scheduled projects require a start date.'); return }
+      const todayStr = new Date().toISOString().slice(0, 10)
+      if (form.start_date <= todayStr) {
+        setErr('Scheduled requires start_date > today. Use Active instead.')
+        return
+      }
+    }
+    if (form.status === 'active' && form.start_date) {
+      const todayStr = new Date().toISOString().slice(0, 10)
+      if (form.start_date > todayStr) {
+        setErr('Active requires start_date <= today. Use Scheduled for future engagements.')
+        return
+      }
+    }
     setBusy(true)
     const payload = {
       brand_id: form.brand_id,

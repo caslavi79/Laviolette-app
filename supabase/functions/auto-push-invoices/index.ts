@@ -209,6 +209,11 @@ Deno.serve(async (req: Request) => {
   // re-activated by mistake, this flag guarantees no PIs are created.
   // Set via: npx supabase secrets set ENABLE_AUTO_CHARGE=true --project-ref ...
   if (Deno.env.get('ENABLE_AUTO_CHARGE') !== 'true') {
+    // Log on every invocation so Supabase function logs confirm the cron
+    // is reaching the handler but intentionally no-oping. A cron monitor
+    // checking only `ok: true` would otherwise see green and not flag
+    // that the job is disabled. Audit 2026-04-22 A1 LOW.
+    console.log('[auto-push-invoices] disabled by ENABLE_AUTO_CHARGE flag; returning 200.')
     return new Response(
       JSON.stringify({
         ok: true,
@@ -368,7 +373,7 @@ Deno.serve(async (req: Request) => {
     .in('status', ['draft', 'pending'])
     .is('stripe_payment_intent_id', null)
     .is('stripe_invoice_id', null)
-    .lte('due_date', today + 'T23:59:59') // due today or earlier
+    .lte('due_date', today) // due today or earlier — `due_date` is a DATE column; comparing to YYYY-MM-DD is unambiguous (audit 2026-04-22 A1 LOW fix — prior `today + 'T23:59:59'` was fragile if the column type ever became timestamptz)
     .eq('clients.bank_info_on_file', false)
   const blocked: Array<{ invoice_number: string; client_name: string; amount: number | string; reason: string }> = []
   for (const b of (blockedCandidates || []) as Array<{

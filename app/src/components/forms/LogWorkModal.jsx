@@ -71,9 +71,14 @@ export default function LogWorkModal({
       const [brandsRes, recentRes] = await Promise.all([
         supabase
           .from('brands')
+          // Left-join on projects so brands with no project yet still
+          // appear in the picker. work_log.brand_id references brands
+          // directly — no project required. Audit 2026-04-22 A8 LOW
+          // (was `projects!inner` which excluded brands without a
+          // project from the picker entirely).
           .select(`
             id, name, color,
-            projects!inner (
+            projects (
               id, type, status,
               retainer_services ( id, number, name, active )
             )
