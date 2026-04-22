@@ -117,21 +117,40 @@ export default function Today() {
   const loadAll = useCallback(async () => {
     setErr('')
     try {
-      // 1. Today's schedule — overrides first, fall back to template for today's DoW
+      // 1. Today's schedule — agenda-style overlay (Schedule v2, migration
+      //    20260424000001). Template blocks always render; overrides layer
+      //    on top. Blackouts that cover the full working day (<=09:00 &
+      //    >=17:00) zero-out the primary brand. `kind='focus'` overrides
+      //    replace the template's primary-brand derivation. Everything
+      //    else (template + event overlays) shows as-is.
       const [ovrRes, tplRes] = await Promise.all([
         supabase
           .from('schedule_overrides')
-          .select('id, time_block, label, brand_id, brands(id, name, color)')
-          .eq('date', today),
+          .select('id, start_time, end_time, label, kind, notes, brand_id, brands(id, name, color)')
+          .eq('date', today)
+          .order('start_time'),
         supabase
           .from('schedule_template')
-          .select('id, time_block, label, brand_id, sort_order, brands(id, name, color)')
+          .select('id, start_time, end_time, label, notes, brand_id, sort_order, brands(id, name, color)')
           .eq('day_of_week', nowDow())
-          .order('sort_order'),
+          .order('start_time'),
       ])
       if (ovrRes.error) throw ovrRes.error
       if (tplRes.error) throw tplRes.error
-      const todaysSchedule = (ovrRes.data && ovrRes.data.length > 0) ? ovrRes.data : (tplRes.data || [])
+      const allOverrides = ovrRes.data || []
+      const allTemplate = tplRes.data || []
+      const focusOverrides = allOverrides.filter((o) => o.kind === 'focus')
+      const blackouts = allOverrides.filter((o) => o.kind === 'blackout')
+      // "Full day off" heuristic: any blackout whose window spans 09:00
+      // through 17:00 suppresses the primary-brand-of-the-day signal.
+      const isFullDayOff = blackouts.some((b) =>
+        b.start_time <= '09:00' && b.end_time >= '17:00'
+      )
+      const todaysSchedule = isFullDayOff
+        ? []
+        : focusOverrides.length > 0
+          ? focusOverrides
+          : allTemplate
 
       // 2. Today's daily rounds
       const { data: drData, error: drErr } = await supabase
@@ -462,10 +481,18 @@ export default function Today() {
 
   if (loading) return <div className="loading">Loading today…</div>
 
-  // Decide today's brand(s) for the header/work panel.
+  // Decide today's brand(s) for the header/work panel. Schedule v2:
+  // schedule rows carry start_time + end_time instead of time_block.
+  // Display a shortened time range for all-day blocks or the literal
+  // window otherwise.
   const primaryBrands = schedule
     .filter((s) => s.brand_id && s.brands)
-    .map((s) => ({ ...s.brands, time_block: s.time_block, label: s.label }))
+    .map((s) => ({
+      ...s.brands,
+      start_time: s.start_time,
+      end_time: s.end_time,
+      label: s.label,
+    }))
   const isFlex = schedule.length > 0 && schedule.every((s) => !s.brand_id)
   const hasSchedule = schedule.length > 0
 
@@ -515,7 +542,15 @@ export default function Today() {
               <h1>
                 Today: {primaryBrands.map((b) => b.name).join(' → ')}
               </h1>
-              <p>{primaryBrands.map((b) => `${b.name}${b.time_block === 'all_day' ? '' : ` (${b.time_block})`}`).join(' · ')}</p>
+              <p>{primaryBrands.map((b) => {
+                // All-day blocks (00:00-23:59:59) render bare; specific
+                // windows show the time range. `HH:MM:SS` → `HH:MM` for
+                // cleaner display.
+                const isFullDay = b.start_time === '00:00:00' && (b.end_time === '23:59:59' || b.end_time === '23:59:00')
+                if (isFullDay) return b.name
+                const clip = (t) => (t || '').slice(0, 5)
+                return `${b.name} (${clip(b.start_time)}–${clip(b.end_time)})`
+              }).join(' · ')}</p>
             </>
           )}
         </div>

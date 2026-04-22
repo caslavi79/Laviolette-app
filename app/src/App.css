@@ -1882,6 +1882,269 @@ body.modal-open { overflow: hidden; }
   .template-row { grid-template-columns: 1fr; gap: 4px; }
 }
 
+/* =========================================================
+   SCHEDULE v2 — agenda timeline + kind picker + time presets
+   (migration 20260424000001; supersedes .week-grid/.schedule-cell
+   styling above. Old classes kept for bundle stability but no longer
+   referenced by Schedule.jsx.)
+   ========================================================= */
+
+.agenda-grid {
+  display: grid;
+  grid-template-columns: 56px repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 20px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 10px;
+}
+
+.agenda-hours {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  padding-top: 46px;    /* align past the day header row */
+}
+.agenda-hour-label {
+  height: var(--agenda-row-h, 48px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-end;
+  padding: 2px 6px 0 0;
+  font-family: var(--label);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-lo);
+  border-top: 1px solid var(--border);
+}
+.agenda-hour-label:first-child { border-top: 0; }
+.agenda-hour-ampm {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--text-lo);
+  opacity: 0.7;
+}
+
+.agenda-day {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border-radius: var(--r-1);
+  overflow: hidden;
+}
+.agenda-day--today { box-shadow: 0 0 0 1px var(--copper-dim); }
+.agenda-day-head {
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  background: var(--surface-1);
+}
+.agenda-day-dow {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-md);
+}
+.agenda-day--today .agenda-day-dow { color: var(--copper); }
+.agenda-day-date {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ivory);
+}
+
+.agenda-day-body {
+  position: relative;
+  height: var(--agenda-body-h, 480px);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--border) 0,
+    var(--border) 1px,
+    transparent 1px,
+    transparent var(--agenda-row-h, 48px)
+  );
+}
+
+.agenda-day-grid { position: absolute; inset: 0; pointer-events: none; }
+.agenda-hour-row {
+  position: absolute;
+  left: 0; right: 0;
+  pointer-events: auto;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.agenda-hour-row:hover {
+  background: rgba(184, 132, 90, 0.04);
+}
+
+.agenda-day-empty {
+  position: absolute;
+  top: 8px; left: 0; right: 0;
+  text-align: center;
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-lo);
+  pointer-events: none;
+}
+
+.agenda-block {
+  position: absolute;
+  left: 3px; right: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--copper);
+  border-radius: var(--r-1);
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: transform 0.1s, box-shadow 0.1s;
+  z-index: 1;
+}
+.agenda-block:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+.agenda-block-time {
+  font-family: var(--label);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--text-md);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+}
+.agenda-block-label {
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--copper);
+  line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+}
+.agenda-block-badge {
+  font-family: var(--label);
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.agenda-block--template {
+  background: var(--surface-2);
+  opacity: 0.92;
+}
+.agenda-block--focus { background: var(--surface-3); }
+.agenda-block--event {
+  background: rgba(184, 132, 90, 0.08);
+  border-left-color: var(--copper-dim);
+}
+.agenda-block--blackout {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(244, 240, 232, 0.04) 0,
+    rgba(244, 240, 232, 0.04) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  background-color: var(--surface-2);
+  border-color: var(--text-lo);
+}
+.agenda-block--dimmed { opacity: 0.4; }
+
+.agenda-hint {
+  font-size: 12px;
+  color: var(--text-lo);
+  font-style: italic;
+  margin: 0 0 24px;
+}
+
+/* Kind picker — segmented control in the override modal. */
+.kind-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.kind-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.kind-pick:hover { border-color: var(--copper-dim); }
+.kind-pick--active {
+  background: var(--copper-soft);
+  border-color: var(--copper-dim);
+}
+.kind-pick-label {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ivory);
+}
+.kind-pick--active .kind-pick-label { color: var(--copper); }
+.kind-pick-desc {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--text-lo);
+  line-height: 1.3;
+}
+
+.time-presets {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* Mobile: stack days as an accordion-style flow. Agenda's absolute-
+ * positioned timeline becomes awkward at narrow widths, so we switch
+ * to a simple flow layout. Each day shows its blocks as a list. */
+@media (max-width: 768px) {
+  .agenda-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .agenda-hours { display: none; }
+  .agenda-day-body {
+    height: auto;
+    min-height: 60px;
+    padding: 8px;
+    background-image: none;
+  }
+  .agenda-day-grid { display: none; }
+  .agenda-day-empty { position: static; padding: 8px; }
+  .agenda-block {
+    position: static;
+    left: auto; right: auto;
+    margin-bottom: 4px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .agenda-block-time { width: auto; }
+  .agenda-block-label { flex: 1; }
+  .kind-picker { grid-template-columns: 1fr; }
+}
+
 /* ============================================================
    MONEY PAGE
    ============================================================ */
