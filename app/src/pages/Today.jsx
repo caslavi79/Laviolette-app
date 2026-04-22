@@ -348,7 +348,7 @@ export default function Today() {
       const { data: workRows } = await supabase
         .from('work_log')
         .select(`
-          id, title, performed_at, brand_id, count,
+          id, title, performed_at, brand_id, count, notes,
           session_id, started_at, ended_at,
           brands ( id, name, color, projects ( id, type ) ),
           retainer_services ( id, name )
@@ -603,13 +603,24 @@ export default function Today() {
                     </div>
                     <ul className="log-work-session-tasks">
                       {g.tasks.map((t) => {
-                        const svcName = t.retainer_services?.name || 'General'
+                        // Hide the "General" meta tag on rows that came
+                        // from v2.1's notes-only flow (service_id=null
+                        // + title derived from notes). Visual noise for
+                        // a freeform log entry. Only show the service
+                        // meta when a service was actually chosen.
+                        const hasService = !!t.retainer_services?.name
                         const countBadge = t.count > 1 ? <span className="log-work-count">×{t.count}</span> : null
                         return (
-                          <li key={t.id} className="log-work-session-task">
+                          <li
+                            key={t.id}
+                            className="log-work-session-task"
+                            title={t.notes || t.title}
+                          >
                             <span className="log-work-title">{t.title}</span>
                             {countBadge}
-                            <span className="log-work-meta">{svcName}</span>
+                            {hasService && (
+                              <span className="log-work-meta">{t.retainer_services.name}</span>
+                            )}
                           </li>
                         )
                       })}
