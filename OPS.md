@@ -117,13 +117,22 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ---
 
-## Current state (as of 2026-04-21)
+## Current state (as of 2026-04-22)
 
-- ✅ **Database** — **31 migrations applied** (full list + tracking in
-  `public._claude_migrations`; most recent adds: `invoice_bank_link_url`,
-  `invoices_pending_sent_date_partial_index`, `project_status_scheduled_enum`,
-  `project_status_scheduled_backfill`). RLS on every table. Direct-pg
+- ✅ **Database** — **32 migrations applied** (full list + tracking in
+  `public._claude_migrations`; most recent: `20260422000005_backfill_comments_and_cron_active`
+  backfills 11 missing column COMMENTs + refreshes projects.status /
+  health_checks.source COMMENTs + extends get_last_cron_runs() with
+  `active` for /health filtering). RLS on every table. Direct-pg
   connection on port 5432 (pooler 6543 broken — use direct).
+- 🔴 **Auto-charge FLAGGED OFF** as of 2026-04-21 (commit `64dd603`).
+  `ENABLE_AUTO_CHARGE=false` on Supabase secrets. Both
+  `laviolette_auto_push_invoices` + `_retry` cron jobs deactivated via
+  `cron.alter_job(jobid, active := false)` — they stay defined but
+  don't fire. Charges happen ONLY when Case clicks "Charge via ACH"
+  on an invoice row in the Money tab. Re-enable: `npx supabase secrets
+  set ENABLE_AUTO_CHARGE=true …` AND `SELECT cron.alter_job(jobid,
+  active := true) FROM cron.job WHERE jobname LIKE '%auto_push%'`.
 - ✅ **Project lifecycle** — `project_status` enum now has a first-class
   `scheduled` value between `draft` and `active` (added 2026-04-22,
   migration `20260422000003`). Signed-but-not-yet-started engagements
@@ -152,10 +161,14 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 - ✅ **Stripe webhook** — live endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`
   at `…/functions/v1/stripe-webhook`, subscribed to **14 events**.
   See "Stripe webhook" section below for the full list + behaviors.
-- ✅ **Cron jobs** — **9 jobs** scheduled + active. +1 in 2026-04-21
-  session: `laviolette_generate_monthly_recaps` at `0 13 1 * *`
-  (08:00 CST / 07:00 CDT on the 1st). All 8 existing jobs untouched.
-  Schedule is Central Time to match clients in Austin, TX.
+- 🟡 **Cron jobs** — **9 jobs defined, 7 active** after the
+  2026-04-21 auto-charge kill-switch deactivated
+  `laviolette_auto_push_invoices` + `_retry`. `/health` filters
+  `active=false` jobs from the stale-cron list (migration
+  `20260422000005`) so those two don't false-flag staleness.
+  Re-activate with `cron.alter_job(jobid, active := true)` if
+  flipping `ENABLE_AUTO_CHARGE=true`. Schedule is Central Time to
+  match clients in Austin, TX.
 - ✅ **External monitoring (UptimeRobot)** — LIVE since 2026-04-21,
   free tier, 5-minute interval. Pings
   `https://sukcufgjptllzucbneuj.supabase.co/functions/v1/health`.
@@ -264,7 +277,11 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Edge functions
 
-All 20 are in `supabase/functions/` (19 production + `run-pipeline-test` manual-only). Shared helpers in `_shared/`:
+`supabase/functions/` holds 21 directories total: 19 deployable
+production functions + `run-pipeline-test` (manual ops tool, excluded
+from `deploy-edge.sh`) + `_shared/` (import-only helpers, not a
+function). 20 are deployable; 19 ship in the main deploy loop.
+Shared helpers in `_shared/`:
 - `client-emails.ts` — email templates + `sendClientEmail` helper + 13
   internal notification kinds.
 - `business-days.ts` — federal holiday + NACHA business-day math
@@ -321,20 +338,25 @@ but do NOT throw (would cause Stripe to retry and double-send receipts).
 
 ### Cron endpoints
 
-All 5 cron-invoked endpoints require `?key=<REMINDERS_SECRET>` in the URL.
+8 cron-invoked endpoints (called by 9 jobs — `auto-push-invoices` has
+primary + retry). All require `?key=<REMINDERS_SECRET>` in the URL.
 Constant-time comparison would be ideal but `!==` is used (low-risk given key rotation).
 
-| Job name | Cron (UTC) | CST / CDT | Endpoint |
-|---|---|---|---|
-| `laviolette_generate_daily_rounds` | `1 6 * * *` | 00:01 / 01:01 | POST `/generate-daily-rounds?key=` |
-| `laviolette_fire_day_reminder` | `0 14 * * 1-5` | 08:00 / 09:00 Mon-Fri | POST `/fire-day-reminder?key=` |
-| `laviolette_send_reminders_am` | `15 14 * * *` | 08:15 / 09:15 | POST `/send-reminders?key=` |
-| `laviolette_check_overdue` | `0 11 * * *` | 05:00 / 06:00 | POST `/check-overdue-invoices?key=` |
-| `laviolette_advance_contracts` | `5 11 * * *` | 05:05 / 06:05 | POST `/advance-contract-status?key=` |
-| `laviolette_auto_push_invoices` | `5 21 * * *` | 15:05 / 16:05 | POST `/auto-push-invoices?key=` |
-| `laviolette_auto_push_invoices_retry` | `5 22 * * *` | 16:05 / 17:05 | POST `/auto-push-invoices?key=` |
-| `laviolette_retainer_invoices` | `1 6 1 * *` | 00:01 / 01:01 on 1st | POST `/generate-retainer-invoices?key=` |
-| `laviolette_generate_monthly_recaps` | `0 13 1 * *` | 08:00 / 07:00 on 1st | POST `/generate-monthly-recaps?key=` |
+**Active column:** 🟢 = active; 🔴 = deactivated via `cron.alter_job`
+(handler may still return 200 `{disabled:true}` as a kill-switch —
+see `auto-push-invoices`).
+
+| Active | Job name | Cron (UTC) | CST / CDT | Endpoint |
+|---|---|---|---|---|
+| 🟢 | `laviolette_generate_daily_rounds` | `1 6 * * *` | 00:01 / 01:01 | POST `/generate-daily-rounds?key=` |
+| 🟢 | `laviolette_fire_day_reminder` | `0 14 * * 1-5` | 08:00 / 09:00 Mon-Fri | POST `/fire-day-reminder?key=` |
+| 🟢 | `laviolette_send_reminders_am` | `15 14 * * *` | 08:15 / 09:15 | POST `/send-reminders?key=` |
+| 🟢 | `laviolette_check_overdue` | `0 11 * * *` | 05:00 / 06:00 | POST `/check-overdue-invoices?key=` |
+| 🟢 | `laviolette_advance_contracts` | `5 11 * * *` | 05:05 / 06:05 | POST `/advance-contract-status?key=` |
+| 🔴 | `laviolette_auto_push_invoices` | `5 21 * * *` | 15:05 / 16:05 | POST `/auto-push-invoices?key=` (disabled 2026-04-21, `ENABLE_AUTO_CHARGE=false`) |
+| 🔴 | `laviolette_auto_push_invoices_retry` | `5 22 * * *` | 16:05 / 17:05 | POST `/auto-push-invoices?key=` (disabled 2026-04-21) |
+| 🟢 | `laviolette_retainer_invoices` | `1 6 1 * *` | 00:01 / 01:01 on 1st | POST `/generate-retainer-invoices?key=` |
+| 🟢 | `laviolette_generate_monthly_recaps` | `0 13 1 * *` | 08:00 / 07:00 on 1st | POST `/generate-monthly-recaps?key=` |
 
 `1 6 UTC` vs `1 5 UTC`: the former fires past midnight CT in BOTH CST winter
 (00:01 local) and CDT summer (01:01 local). The prior `1 5 UTC` fired at 23:01
@@ -433,12 +455,12 @@ Deliverable Schedule, not the invoice line items.
 
 ### Secrets (Supabase Dashboard → Functions → Secrets)
 
-17 user-set secrets total (plus 4 Supabase-auto-provided: `SUPABASE_URL`,
+18 user-set secrets total (plus 4 Supabase-auto-provided: `SUPABASE_URL`,
 `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`). Set
-via `npx supabase@latest secrets set NAME=value`. `DEPLOY_SHA` listed below
-is documented but not currently set on prod — edge fns default to `'unknown'`
-when missing, so `/health.deploy_sha='unknown'`. Set it intentionally if you
-ever wire a deploy-time CI tag.
+via `npx supabase@latest secrets set NAME=value`. `DEPLOY_SHA` is now
+wired in `scripts/deploy-edge.sh` to set automatically to `git rev-parse
+--short HEAD` before each deploy — `/health.deploy_sha` reflects the
+short SHA of the most recent deploy-edge.sh run.
 
 | Secret | Purpose |
 |---|---|
@@ -458,8 +480,9 @@ ever wire a deploy-time CI tag.
 | `BRAND_BG` | `#12100D` (ink) |
 | `BRAND_INK` | `#F4F0E8` (cream) |
 | `BRAND_LOGO_URL` | Logo URL for email HTML (currently empty string) |
-| `DEPLOY_SHA` | Short SHA of the current deploy, surfaced in `/health` response body. Safe default `'unknown'` so missing secret doesn't crash. |
+| `DEPLOY_SHA` | Short SHA of the current deploy, surfaced in `/health` response body. Auto-set by `scripts/deploy-edge.sh` on each run (git short HEAD). Safe default `'unknown'` so missing secret doesn't crash. |
 | `ENABLE_UNIFIED_ONBOARDING` | Feature flag for the unified onboarding flow. **Current value: `"true"`** (set 2026-04-21 after end-to-end test). `"true"` → `contract-sign` synthesizes invoice + bank-link on buildout sign. Any other value (including unset) → existing multi-step flow. See "Architecture: Unified onboarding flow" section. |
+| `ENABLE_AUTO_CHARGE` | Kill-switch for `auto-push-invoices`. **Current value: `"false"`** (set 2026-04-21). `"true"` = cron + retry fire ACH pushes as before. Any other value (including unset, current `"false"`) = early-return no-op with `{disabled:true}` response. Paired belt-and-suspenders with `cron.alter_job active=false` on both `laviolette_auto_push_invoices*` jobs. To re-enable auto-charge: set `ENABLE_AUTO_CHARGE=true` AND `SELECT cron.alter_job(jobid, active := true) FROM cron.job WHERE jobname LIKE 'laviolette_auto_push%'`. |
 
 Plus auto-provided by Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 `SUPABASE_ANON_KEY`. These are always present in edge function env.
@@ -920,10 +943,10 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 31 (most recent: `20260422000003_project_status_scheduled_enum.sql` + `20260422000004_project_status_scheduled_backfill.sql` — adds the `scheduled` project status value + backfills Dustin's 3 May-1 retainers from active to scheduled). `_claude_migrations` row count matches filesystem. |
-| Edge functions deployed | 20 total (19 production in `deploy-edge.sh` + `run-pipeline-test` manual). `deploy-edge.sh` pinned to `supabase@2.93.0` (audit Round 3). |
+| Migrations applied | 32 (most recent: `20260422000005_backfill_comments_and_cron_active.sql` — backfills 11 missing column COMMENTs on health_checks/monthly_recaps/work_log + refreshes projects.status + health_checks.source COMMENTs + adds `active` to get_last_cron_runs() so /health can filter inactive jobs). `_claude_migrations` row count matches filesystem. |
+| Edge functions deployed | 19 production (in `deploy-edge.sh`) + `run-pipeline-test` manual = 20 deployable. Plus `_shared/` helpers (import-only, not a function) = 21 directories total. `deploy-edge.sh` pinned to `supabase@2.93.0`, now also sets `DEPLOY_SHA` secret before each deploy. |
 | Webhook events subscribed | 14 |
-| Cron jobs active | 9 (all under `laviolette_*` prefix, all active, see "Cron endpoints" table below) |
+| Cron jobs | 9 defined, **7 active** — `laviolette_auto_push_invoices` + `_retry` deactivated 2026-04-21 (auto-charge kill-switch). `/health` excludes `active=false` jobs from stale-cron alerts via migration 20260422000005 RPC update. |
 | Unresolved `notification_failures` | 0 |
 | Screens | 8 authenticated (Today, Schedule, Contacts, Projects, Money, Contracts, Notifications, Incidents) + 4 public (Sign, SetupSuccess, SetupCancel, Login) = 12 routes total |
 | External monitoring | UptimeRobot LIVE 5-min on `/health`, alerts verified end-to-end (2026-04-21). Status page: <https://stats.uptimerobot.com/muAd17CfnU>. |
@@ -934,7 +957,8 @@ single-user app).
 | Contracts | 7 — Dustin's 4 (3 retainers + 1 buildout) + Nicole + Viktoriia (both signed 2026-04-21, Variant C buildouts) + Exodus 1414 (draft buildout, marker-regenerated 2026-04-21). |
 | Projects by status | 3 scheduled (Dustin's 3 retainers, start_date 2026-05-01) + 3 active (Citrus and Salt Buildout start_date=Apr 15, Nicole + Viktoriia buildouts start_date=today) + 1 draft (Exodus). Flip to active at 05:05 CT on each project's start_date via `advance-contract-status`. |
 | Lead details rows | 3 (Cody Welch, Nicole James, Viktoriia Jones). Dustin correctly absent (customer, not lead). |
-| Last frontend deploy | 2026-04-21 scheduled-project-status push: `index-COpx8gW-.js` / `index-DXISWbym.css` (commit `5361a62` surfacing `scheduled` across Projects / Money / Contacts). |
-| Last edge-function deploy | 2026-04-21 audit Round 3: `send-invoice`, `send-manual-receipt`, `send-monthly-recap`, `stripe-webhook`, `contract-sign`, `generate-monthly-recaps` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt` (M2 guard + M8 BCC + M9 threat-model doc + M3 PNG magic + M4 marker regex). 2026-04-21 scheduled-feature follow-up: `contract-sign` (route `draft → scheduled|active` on `start_date`), `advance-contract-status` (flip `scheduled → active` on due date), and `generate-retainer-invoices` (accept `scheduled` projects) redeployed for the `scheduled` project_status rollout. Flag `ENABLE_UNIFIED_ONBOARDING=true` on Supabase secrets (digest `b5bea41b…` = sha256("true")). |
+| Last frontend deploy | 2026-04-22 post-audit sweep: `index-B9RPNJ_W.js` / `index-DXISWbym.css` — bundles Contacts ContactDetail lead-gate, EditContactModal validation, Incidents row=img + truncation hint, Today workOpen reset, Projects unknown-type fallback, filter-pill aria-pressed rollout, Money/Contracts aria-pressed, LogWorkModal left-join, EditProjectModal state-machine validation. |
+| Last edge-function deploy | 2026-04-22 post-audit sweep: `check-overdue-invoices`, `send-reminders`, `stripe-webhook`, `contract-sign`, `generate-daily-rounds`, `auto-push-invoices`, `regenerate-bank-link`, `generate-monthly-recaps`, `send-monthly-recap`, `health` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt`. Covers PI-null filters (C1), type=retainer gate, mandate.updated inactive-only, charge.refunded status table, payment_intent.succeeded paid_amount, post-commit side-effect try/catch, idempotency-cleanup DLQ, CT date routing, scheduled-status rounds, blocked-query project filter, DLQ payload error field, metadata-backfill soft DLQ, URL composition via new URL(), kill-switch log line, monthly-recaps context-prefix rename + destructure error, self-BCC skip, buildMessage prioritize DLQ, active-filter on stale_crons. Flags `ENABLE_UNIFIED_ONBOARDING=true` + `ENABLE_AUTO_CHARGE=false` on Supabase secrets. |
 | Last DB cleanup | 2026-04-21 Phase 6 extended (deleted Phase 6 test scaffold in single transaction; kept Stripe customer `cus_UNW150fcvgvWJn` as audit trail). |
-| Unpushed local commits on `main` | **0** after the audit Round 3 + cleanup push. Origin HEAD moves every batch; check `git log origin/main..HEAD --oneline` for live state. |
+| Last DB repair | 2026-04-22 post-audit sweep: `UPDATE public._claude_migrations SET checksum='7a5ebe4f' WHERE version='20260422000004'` (Agent 10 CRITICAL — file hash on disk had drifted from the applied checksum, blocking future `apply-migrations.mjs` runs). Migration `20260422000005` then applied cleanly on top. |
+| Unpushed local commits on `main` | Origin HEAD moves every batch; check `git log origin/main..HEAD --oneline` for live state. |

@@ -11,7 +11,7 @@ payments for a small consultancy.
 |---|---|---|
 | Frontend | React 19 + Vite + React Router 7 | Single-user SPA, hand-rolled CSS (no framework), mobile-first |
 | Backend | Supabase | Postgres 17 + Auth + Storage + Edge Functions (Deno) |
-| Scheduling | `pg_cron` + `pg_net` | 9 cron jobs fire HTTP POST to edge functions |
+| Scheduling | `pg_cron` + `pg_net` | 9 cron jobs defined (7 active — `auto-push-invoices` + `_retry` deactivated via kill-switch 2026-04-21) |
 | Email | [Resend](https://resend.com) | Domain `laviolette.io` verified in us-east-1 |
 | Payments | Stripe LIVE mode | ACH via PaymentIntent (not Stripe Billing — avoids 0.5% fee) |
 | Deploy | `gh-pages` | Pushes `dist/` to `caslavi79/Laviolette-app-deploy`, GitHub Pages serves it |
@@ -87,16 +87,17 @@ Laviolette-app/
 │   ├── deploy-edge.sh          # Deploy all 19 production edge functions in one pass
 │   └── README.md               # Per-script docs
 ├── supabase/
-│   ├── migrations/             # 31 versioned SQL files (enums → tables → triggers →
+│   ├── migrations/             # 32 versioned SQL files (enums → tables → triggers →
 │   │                           #   RLS → storage → contracts-signing → stripe idempotency →
 │   │                           #   payment indexes → notification_failures → cron observability →
 │   │                           #   lead tracking → work log → monthly recaps → health checks →
 │   │                           #   invoice bank-link → pending-sent-date partial index →
-│   │                           #   scheduled project_status enum + backfill)
+│   │                           #   scheduled project_status enum + backfill →
+│   │                           #   column COMMENTs backfill + get_last_cron_runs.active)
 │   ├── functions/              # 20 Deno edge functions (19 production + run-pipeline-test manual ops tool)
 │   │   ├── _shared/            # client-emails.ts, business-days.ts
 │   │   ├── stripe-webhook/     # 14 Stripe events + idempotency + HQ alerts
-│   │   ├── auto-push-invoices/ # Daily 4:05 PM CT ACH firing + atomic claim
+│   │   ├── auto-push-invoices/ # ACH firing via atomic-claim PI (disabled 2026-04-21 — ENABLE_AUTO_CHARGE=false + crons inactive)
 │   │   ├── create-stripe-invoice/   # "Charge via ACH" button handler
 │   │   ├── create-setup-session/    # Stripe Checkout bank-link (UI path)
 │   │   ├── contract-send/      # Send contract for e-sign
@@ -111,7 +112,7 @@ Laviolette-app/
 │   │   ├── send-manual-receipt/    # Fire receipt + HQ alert for MarkPaidModal wire/check payments
 │   │   └── health/             # Public GET — cron status + DLQ count + pending invoices
 │   └── sql/
-│       └── cron-schedule.sql   # pg_cron setup (9 jobs, DST-corrected)
+│       └── cron-schedule.sql   # pg_cron setup (9 jobs defined; 7 active — 2 auto-push jobs deactivated 2026-04-21)
 ├── OPS.md                      # Day-to-day ops runbook
 ├── README.md                   # This file
 └── package.json                # Root scripts (stripe-setup, db:verify, apply-migrations, generate-contract)
@@ -137,7 +138,7 @@ real values. Both `.env.local` and `app/.env` are gitignored.
 
 Edge function secrets live in Supabase Dashboard
 ([Settings → Functions](https://supabase.com/dashboard/project/sukcufgjptllzucbneuj/settings/functions)),
-NOT in this repo. See [OPS.md](OPS.md) for the list (17 user-set secrets + 4 Supabase auto-provided).
+NOT in this repo. See [OPS.md](OPS.md) for the list (18 user-set secrets + 4 Supabase auto-provided — latest add: `ENABLE_AUTO_CHARGE` kill-switch).
 
 ## Status (2026-04-21 — snapshot; see [OPS.md](OPS.md) for live values)
 
@@ -145,7 +146,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (17 user-set secrets + 4 Sup
 |---|---|---|
 | 0. Repo + credentials | ✅ | All 3 repos, gh CLI auth, Stripe CLI live-mode |
 | 0.5. Stripe CLI + static redirect pages | ✅ | Live on laviolette.io/setup-success + /setup-cancel |
-| 1. DB schema | ✅ | 21 tables, full COMMENT coverage, triggers on every mutable row, RLS everywhere |
+| 1. DB schema | ✅ | 20 tables, full COMMENT coverage (completed 2026-04-22 via migration `20260422000005`), triggers on every mutable row, RLS everywhere |
 | 2. Frontend scaffold + auth | ✅ | React 19 + Router 7 + Vite, per-page ErrorBoundary |
 | 3.1 Today | ✅ | Daily rounds + alerts + week tasks + buildout deliverables |
 | 3.2 Contacts/Clients/Brands | ✅ | Three-tier nested CRUD, billing-state pill with PI+Invoice checking |
@@ -156,7 +157,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (17 user-set secrets + 4 Sup
 | 3.7 Notifications | ✅ | Dead-letter queue UI, Retry / Dismiss, auto-polled badge in sidebar |
 | 4. Edge functions | ✅ | **20** deployed (19 production + `run-pipeline-test` manual ops tool). See OPS.md for per-function purpose. |
 | 4.5. Stripe webhook | ✅ | **14 events** subscribed, idempotency table, HQ alerts via `notifyCase`, handlers for paid/failed/canceled/processing/dispute/refund/mandate/pm_detached |
-| 4.6. Cron schedule | ✅ | **9 jobs** active, DST-corrected `1 6 UTC` past midnight CT in both seasons, fire-day-reminder at 9 AM CT weekdays |
+| 4.6. Cron schedule | 🟡 | **9 jobs defined, 7 active** — `auto-push-invoices` + `_retry` deactivated 2026-04-21 via auto-charge kill-switch. `/health` skips inactive jobs when checking staleness (migration 20260422000005). DST-corrected `1 6 UTC` past midnight CT in both seasons, fire-day-reminder at 9 AM CT weekdays. |
 | 4.11. Fire-day reminder | ✅ | 9 AM CT weekdays. Emails Case eligible + blocked invoices with "Fire now" deep-links. Manual-first + auto-push safety net pattern. |
 | 4.12. Scheduled project status | ✅ | First-class `scheduled` value in `project_status` enum (signed-but-not-yet-started). `contract-sign` routes projects to `scheduled` vs `active` on `start_date`; `advance-contract-status` daily cron flips `scheduled → active` on due date. Surfaced across Projects / Money (Active MRR vs Scheduled MRR) / Contacts. |
 | 4.7. Resend | ✅ | Domain verified, API key set, BCC on all client emails, DLQ on failures |
@@ -165,7 +166,13 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (17 user-set secrets + 4 Sup
 | 4.10. Contract flow | ✅ | Typed/Draw signature, ESIGN/UETA consent, auto-countersign, client sig baked into filled_html, download PDF |
 | 5. Frontend deploy | ✅ | Live at app.laviolette.io |
 
-**Next milestone: May 1, 2026 — first live billing cycle.** 4 invoices totaling
-$4,700 auto-charge at 4:05 PM CT on April 30 against Dustin Batson's linked banks.
+**Next milestone: May 1, 2026 — first live billing cycle.** 4 invoices
+totaling $4,700 (`LV-2026-001..004`) due May 1. Auto-charge is flagged
+OFF (`ENABLE_AUTO_CHARGE=false` + both auto-push crons deactivated),
+so Case fires each via the Money tab "Charge via ACH" button on fire
+day (2026-04-30). The `fire-day-reminder` cron still runs Mon-Fri at
+09:00 CT and sends a heads-up email with per-invoice "Fire now"
+deep-links. Scheduled retainers auto-flip to active at 05:05 CT on
+their start_date via `advance-contract-status`.
 
 See [../HANDOFF.md](../HANDOFF.md) for the full session log + outstanding items.

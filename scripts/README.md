@@ -171,7 +171,7 @@ bash scripts/deploy-edge.sh
 Currently deploys (alphabetical, matches the FUNCTIONS array in
 deploy-edge.sh exactly):
 - `advance-contract-status` — Daily cron, `signed` → `active` on effective_date
-- `auto-push-invoices` — Daily 4:05 PM CT + 5:05 PM retry. Atomic-claim ACH firing.
+- `auto-push-invoices` — Atomic-claim ACH firing (currently flagged OFF via `ENABLE_AUTO_CHARGE=false`; primary + retry cron jobs deactivated 2026-04-21 — handler returns `{disabled: true}` early-exit)
 - `check-overdue-invoices` — Daily cron, `pending`/`sent` → `overdue` past due_date
 - `contract-send` — Email contract signing link
 - `contract-sign` — Public signing endpoint (GET + POST), 30-day TTL, embeds client sig into filled_html, auto-fires `send-invoice` on sign
@@ -209,3 +209,20 @@ digging through git history.
   the marker regex fallback in `contract-sign` would have handled the
   pre-marker HTML correctly at sign time anyway — this was fleet-consistency
   cleanup. Logged via commit that references this entry.
+
+- **2026-04-21 evening** — auto-charge kill-switch flipped ON (= auto-charge
+  OFF). `npx supabase@2.93.0 secrets set ENABLE_AUTO_CHARGE=false
+  --project-ref sukcufgjptllzucbneuj` + `SELECT cron.alter_job(jobid, active
+  := false) FROM cron.job WHERE jobname IN ('laviolette_auto_push_invoices',
+  'laviolette_auto_push_invoices_retry')`. Two-layer so a stray
+  `cron.alter_job(active:=true)` still wouldn't charge unless the flag is
+  also flipped. Documented in OPS.md → Secrets + Cron endpoints sections.
+
+- **2026-04-22 autonomous audit sweep** — `UPDATE public._claude_migrations
+  SET checksum='7a5ebe4f' WHERE version='20260422000004'`. Repair of the
+  Agent 10 CRITICAL checksum drift — the on-disk SQL file hashed to
+  `7a5ebe4f` while the tracking table held `d18c793f`, blocking any new
+  `apply-migrations.mjs` run. Zero schema effect (the migration's DDL had
+  already been applied). `npm run apply-migrations -- --dry-run`
+  post-repair confirmed all 31 rows marked `[applied]` with zero
+  `[MODIFIED]` entries, clearing the way for migration `20260422000005`.
