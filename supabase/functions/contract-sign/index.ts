@@ -243,22 +243,37 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, error: 'Contract was signed by someone else just now.' }, 409, corsHeaders)
     }
 
-    // Advance the linked project from draft → active on successful sign.
-    // Non-blocking + conditionally-guarded: only flip rows still in draft
-    // state (pre-existing active/paused/complete/cancelled projects are
-    // not touched). A failure here never reverses the signature — the
-    // client already saw "Signed" in the UI; the project advance is
-    // bookkeeping. Operator can manually flip via the Projects page if
-    // this step errors, and the UI state-consistency sweep in Batch A
-    // derives display state from contract presence anyway.
+    // Advance the linked project on successful sign.
+    //   draft → active    when start_date <= today (or null)
+    //   draft → scheduled when start_date >  today  (signed-but-not-started)
+    //
+    // The scheduled-state cron (`advance-contract-status`) flips
+    // scheduled → active daily once start_date arrives. Both transitions
+    // guarded by `status='draft'` so pre-existing active/paused/
+    // complete/cancelled projects are never re-bounced. A failure here
+    // doesn't reverse the signature — the sign commit is already
+    // permanent; this is lifecycle bookkeeping. Operator can correct
+    // manually via the Projects page if needed.
     if (contract.project_id) {
-      const { error: projErr } = await supabase
+      const { data: proj, error: projReadErr } = await supabase
         .from('projects')
-        .update({ status: 'active', updated_at: signedAt })
+        .select('start_date')
         .eq('id', contract.project_id)
-        .eq('status', 'draft')
-      if (projErr) {
-        console.warn(`[contract-sign] project advance failed for ${contract.project_id}: ${projErr.message}`)
+        .maybeSingle()
+      if (projReadErr) {
+        console.warn(`[contract-sign] project read failed for ${contract.project_id}: ${projReadErr.message}`)
+      } else {
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const startDate = proj?.start_date ?? null
+        const nextStatus = (!startDate || String(startDate).slice(0, 10) <= todayStr) ? 'active' : 'scheduled'
+        const { error: projErr } = await supabase
+          .from('projects')
+          .update({ status: nextStatus, updated_at: signedAt })
+          .eq('id', contract.project_id)
+          .eq('status', 'draft')
+        if (projErr) {
+          console.warn(`[contract-sign] project advance failed for ${contract.project_id}: ${projErr.message}`)
+        }
       }
     }
 
