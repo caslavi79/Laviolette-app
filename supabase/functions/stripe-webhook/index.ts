@@ -222,10 +222,17 @@ Deno.serve(async (req: Request) => {
               ? `${(current?.notes || '').trim()}\n\n${new Date().toISOString()}: ${partialReconcileNote}`
               : `${new Date().toISOString()}: ${partialReconcileNote}`)
           : current?.notes
+        // Write paid_amount = pi.amount_received / 100 so status='paid' rows
+        // always carry the Stripe-verified cleared amount. Pre-fix behavior
+        // left paid_amount at a stale manual partial (e.g. $500) while flipping
+        // status='paid' — making downstream reports that key off paid_amount
+        // under-count revenue. Audit 2026-04-22 A1 HIGH #2.
+        const clearedAmount = (pi.amount_received || pi.amount || 0) / 100
         const patch = {
           status: 'paid' as const,
           paid_date: new Date().toISOString().slice(0, 10),
           payment_method: 'stripe_ach' as const,
+          paid_amount: clearedAmount,
           stripe_payment_intent_id: pi.id,
           updated_at: new Date().toISOString(),
           ...(partialReconcileNote ? { notes: combinedNotes } : {}),
@@ -544,18 +551,29 @@ Deno.serve(async (req: Request) => {
         const combinedNotes = priorNotes
           ? `${priorNotes}\n\n${new Date().toISOString()}: ${note}`
           : note
-        // Status transition rules to avoid flipping void→paid on a late partial refund:
-        // - current=void: stay void (already fully refunded; any subsequent refund is a duplicate or smaller)
-        // - current=paid and fullyRefunded: transition to void
-        // - current=paid and !fullyRefunded: stay paid (just append note)
-        // - current=pending/overdue: mirrors above for unusual pre-settlement refund cases
-        const currentStatus = (row as { status?: string }).status
-        const nextStatus =
-          currentStatus === 'void'
-            ? 'void' as const
-            : fullyRefunded
-              ? 'void' as const
-              : (currentStatus === 'paid' ? 'paid' as const : 'paid' as const)
+        // Status transition rules. Audit 2026-04-22 A1 HIGH flagged the prior
+        // implementation for a tautological ternary (`currentStatus === 'paid'
+        // ? 'paid' : 'paid'`) that silently force-flipped overdue /
+        // partially_paid / pending rows to `paid` on any partial refund —
+        // destroying audit trail and mis-stating revenue.
+        //
+        // Explicit table:
+        //   - void + any refund              → stay void (duplicate or later partial)
+        //   - paid + full refund             → void
+        //   - paid + partial refund          → stay paid (note appended)
+        //   - pending/overdue/partially_paid + any refund → stay as-is
+        //     (unusual — the preserved status documents upstream state; the
+        //     combinedNotes line captures the refund for audit)
+        //   - draft/sent + any refund        → stay as-is (refund on an
+        //     uncharged invoice is weird but not our place to re-state)
+        const currentStatus = (row as { status?: string }).status ?? 'paid'
+        let nextStatus: string = currentStatus
+        if (currentStatus === 'void') {
+          nextStatus = 'void'
+        } else if (fullyRefunded && currentStatus === 'paid') {
+          nextStatus = 'void'
+        }
+        // Otherwise nextStatus = currentStatus (no change)
         const res = await admin
           .from('invoices')
           .update({
@@ -783,12 +801,15 @@ Deno.serve(async (req: Request) => {
         break
       }
       case 'mandate.updated': {
-        // ACH mandate status changed. If inactive/revoked, the client revoked
-        // authorization. Flip our DB flag and alert Case so he can follow up.
+        // ACH mandate status changed. Only `inactive` means revoked/expired —
+        // `pending` is the normal state for a fresh mandate awaiting microdeposit
+        // or verification, NOT a revocation (per Stripe docs). Treating
+        // `pending` as inactive was the audit 2026-04-22 A1 HIGH finding:
+        // it would flip `bank_info_on_file=false` on a just-linked client
+        // during the pending→active transition, then never flip back true
+        // unless the client re-linked. Would bite Cody Welch on his next
+        // bank-link. Now narrowed to `inactive` only.
         const mandate = event.data.object as Stripe.Mandate
-        const customerId = typeof (mandate.customer_acceptance as unknown) === 'string'
-          ? (mandate.customer_acceptance as unknown as string)
-          : null
         // Mandate → PM → customer. Get the PM, then find our client by customer.
         const pmId = typeof mandate.payment_method === 'string'
           ? mandate.payment_method
@@ -797,10 +818,9 @@ Deno.serve(async (req: Request) => {
           console.log(`[mandate.updated] no payment_method on ${mandate.id}, skipping`)
           break
         }
-        // Only act on mandates that are no longer active (revoked, inactive).
-        const isInactive = mandate.status === 'inactive' || mandate.status === 'pending'
-        if (!isInactive) {
-          console.log(`[mandate.updated] status=${mandate.status}, no action needed`)
+        // Only act on mandates that are revoked/expired.
+        if (mandate.status !== 'inactive') {
+          console.log(`[mandate.updated] status=${mandate.status}, no action needed (only 'inactive' revokes bank_info_on_file)`)
           break
         }
         // Look up the PM to find its customer
