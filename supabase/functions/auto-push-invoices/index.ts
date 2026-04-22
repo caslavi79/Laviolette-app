@@ -352,11 +352,18 @@ Deno.serve(async (req: Request) => {
   // BLOCKED CHECK: separate query for invoices that SHOULD fire today but can't
   // (client has no bank on file yet). This is the "Dustin only linked 1 of 2 banks"
   // scenario — critical to catch before May 1. Alert Case via HQ email.
+  //
+  // Also joins projects(status) and filters cancelled/complete at the
+  // per-row level — mirrors the main loop's skip at lines 270-277.
+  // Audit 2026-04-22 A4 MEDIUM — prior version would surface "blocked"
+  // alerts for invoices on projects that had been cancelled or marked
+  // complete, turning ended engagements into noisy HQ emails.
   const { data: blockedCandidates } = await admin
     .from('invoices')
     .select(
       'invoice_number, total, due_date, ' +
-      'clients!inner(legal_name, name, bank_info_on_file, stripe_customer_id)'
+      'clients!inner(legal_name, name, bank_info_on_file, stripe_customer_id), ' +
+      'projects(status)'
     )
     .in('status', ['draft', 'pending'])
     .is('stripe_payment_intent_id', null)
@@ -366,8 +373,11 @@ Deno.serve(async (req: Request) => {
   const blocked: Array<{ invoice_number: string; client_name: string; amount: number | string; reason: string }> = []
   for (const b of (blockedCandidates || []) as Array<{
     invoice_number: string; total: number | string; due_date: string;
-    clients?: { legal_name?: string; name?: string; stripe_customer_id?: string | null }
+    clients?: { legal_name?: string; name?: string; stripe_customer_id?: string | null };
+    projects?: { status?: string } | null
   }>) {
+    const projStatus = b.projects?.status
+    if (projStatus === 'cancelled' || projStatus === 'complete') continue
     let fireDate: string
     try {
       fireDate = computeFireDate(b.due_date).fireDate

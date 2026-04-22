@@ -118,7 +118,7 @@ export default function Contracts() {
         />
         <div className="toolbar-filters">
           {['all', 'draft', 'sent', 'signed', 'expired', 'terminated'].map((s) => (
-            <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} onClick={() => setFilterStatus(s)}>{s}</button>
+            <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} aria-pressed={filterStatus === s} onClick={() => setFilterStatus(s)}>{s}</button>
           ))}
         </div>
         <button

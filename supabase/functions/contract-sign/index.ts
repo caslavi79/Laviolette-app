@@ -263,7 +263,16 @@ Deno.serve(async (req: Request) => {
       if (projReadErr) {
         console.warn(`[contract-sign] project read failed for ${contract.project_id}: ${projReadErr.message}`)
       } else {
-        const todayStr = new Date().toISOString().slice(0, 10)
+        // Use CT to match the cron pipeline. Audit 2026-04-22 A3/A4 MEDIUM:
+        // `new Date().toISOString()` returns UTC, so a contract signed at
+        // 22:00 CT on day N-1 for a project with start_date=N would route
+        // directly to 'active' (skipping 'scheduled') because the UTC date
+        // was already N. `advance-contract-status` + `generate-retainer-invoices`
+        // both compute today via America/Chicago; this aligns with them.
+        const todayStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Chicago',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date())
         const startDate = proj?.start_date ?? null
         const nextStatus = (!startDate || String(startDate).slice(0, 10) <= todayStr) ? 'active' : 'scheduled'
         const { error: projErr } = await supabase

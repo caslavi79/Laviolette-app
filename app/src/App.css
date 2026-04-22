@@ -1019,11 +1019,12 @@ body.modal-open { overflow: hidden; }
   transition: all 0.15s;
 }
 .filter-pill:hover { color: var(--ivory); }
-.filter-pill.active {
-  background: var(--copper-soft);
-  border-color: var(--copper-dim);
-  color: var(--copper);
-}
+/* Active state — accepts either .active class (legacy sites) or
+ * aria-pressed="true" (a11y-forward sites). Single rule avoids the
+ * mask-divergence risk flagged in audit 2026-04-22 A8 MEDIUM: if a
+ * refactor set one but not the other, visual state would still work
+ * via the surviving selector — hiding the a11y regression. */
+.filter-pill.active,
 .filter-pill[aria-pressed="true"] {
   background: var(--copper-soft);
   border-color: var(--copper-dim);

@@ -176,12 +176,35 @@ Deno.serve(async (req: Request) => {
       })
     }
     console.error('Failed to record event for idempotency:', idemErr)
+    const originalErrorMsg = (idemErr as { message?: string }).message || 'unknown insert error'
     // Best-effort cleanup — if the partial row never landed the DELETE no-ops;
     // if it did land the DELETE clears it so Stripe's retry can INSERT fresh.
-    await admin.from('stripe_events_processed').delete().eq('event_id', event.id).then(
-      () => {},
-      (e) => console.error(`idempotency cleanup delete also failed for ${event.id}: ${(e as Error).message}`),
-    )
+    // If the DELETE itself errors (and a phantom row from a commit-after-timeout
+    // actually exists), Stripe's retry will hit a spurious 23505, return
+    // duplicate:true, and the handler will never run — event silently lost.
+    // Persist a DLQ row so Case has visibility for manual reconciliation.
+    // Audit 2026-04-22 A1 MEDIUM #2.
+    const { error: delErr } = await admin.from('stripe_events_processed').delete().eq('event_id', event.id)
+    if (delErr) {
+      console.error(`idempotency cleanup delete also failed for ${event.id}: ${delErr.message}`)
+      try {
+        await admin.from('notification_failures').insert({
+          kind: 'internal',
+          context: `stripe-webhook:idempotency-cleanup-failed:${event.id}`,
+          subject: `⚠ Stripe webhook idempotency cleanup failed (possible lost event: ${event.type})`,
+          to_email: CASE_NOTIFY_EMAIL,
+          error: `Insert failed (${originalErrorMsg}) then cleanup delete also failed (${delErr.message}). If Stripe retry hits a phantom 23505 from a committed-but-unacked insert, this event will be silently marked duplicate. Reconcile manually against Stripe events list.`,
+          payload: {
+            event_id: event.id,
+            event_type: event.type,
+            original_insert_error: originalErrorMsg,
+            cleanup_delete_error: delErr.message,
+          },
+        })
+      } catch (persistErr) {
+        console.error(`[stripe-webhook] failed to persist idempotency-cleanup DLQ for ${event.id}: ${(persistErr as Error).message}`)
+      }
+    }
     return new Response(JSON.stringify({ error: 'idempotency insert failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -252,62 +275,81 @@ Deno.serve(async (req: Request) => {
           break
         }
 
-        // Send paid receipt to the client. Non-blocking — any failure is logged
-        // but must not throw (would cause Stripe to retry the whole webhook and
-        // double-send the receipt on next attempt since the DB update already committed).
-        const invRow = res.data[0] as {
-          invoice_number: string
-          total: number | string
-          description: string | null
-          paid_date: string
-          clients?: { billing_email?: string | null; legal_name?: string | null; name?: string | null } | null
-          brands?: { name?: string | null } | null
-        }
-        const toEmail = invRow.clients?.billing_email
-        if (!toEmail) {
-          console.warn(`[payment_intent.succeeded] ${invRow.invoice_number}: no billing_email — skipping receipt email`)
-          break
-        }
-        const { subject, html } = buildReceiptEmail({
-          clientName: invRow.clients?.legal_name || invRow.clients?.name || 'there',
-          brandName: invRow.brands?.name || invRow.clients?.legal_name || invRow.clients?.name || 'your account',
-          invoiceNumber: invRow.invoice_number,
-          description: invRow.description || '',
-          amount: invRow.total,
-          paidDate: invRow.paid_date,
-        })
-        const emailRes = await sendClientEmail({
-          apiKey: RESEND_API_KEY,
-          from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
-          replyTo: BRAND_REPLY_TO,
-          to: toEmail,
-          bcc: [CASE_NOTIFY_EMAIL],
-          subject,
-          html,
-          context: `stripe-webhook:receipt:${invRow.invoice_number}`,
-        })
-        if (!emailRes.ok) {
-          console.error(`[payment_intent.succeeded] receipt email failed for ${invRow.invoice_number}: ${emailRes.error}`)
+        // Post-DB-commit side effects wrapped — any throw here MUST NOT
+        // propagate to the outer catch (which would delete the idempotency
+        // row and cause Stripe to retry the whole handler, re-running the
+        // idempotent DB update + re-sending the receipt to the client).
+        // The DB commit is the source of truth; anything downstream is
+        // best-effort notification. Audit 2026-04-22 A1 MEDIUM #3.
+        try {
+          const invRow = res.data[0] as {
+            invoice_number: string
+            total: number | string
+            description: string | null
+            paid_date: string
+            clients?: { billing_email?: string | null; legal_name?: string | null; name?: string | null } | null
+            brands?: { name?: string | null } | null
+          }
+          const toEmail = invRow.clients?.billing_email
+          if (!toEmail) {
+            console.warn(`[payment_intent.succeeded] ${invRow.invoice_number}: no billing_email — skipping receipt email`)
+            break
+          }
+          const { subject, html } = buildReceiptEmail({
+            clientName: invRow.clients?.legal_name || invRow.clients?.name || 'there',
+            brandName: invRow.brands?.name || invRow.clients?.legal_name || invRow.clients?.name || 'your account',
+            invoiceNumber: invRow.invoice_number,
+            description: invRow.description || '',
+            amount: invRow.total,
+            paidDate: invRow.paid_date,
+          })
+          const emailRes = await sendClientEmail({
+            apiKey: RESEND_API_KEY,
+            from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
+            replyTo: BRAND_REPLY_TO,
+            to: toEmail,
+            bcc: [CASE_NOTIFY_EMAIL],
+            subject,
+            html,
+            context: `stripe-webhook:receipt:${invRow.invoice_number}`,
+          })
+          if (!emailRes.ok) {
+            console.error(`[payment_intent.succeeded] receipt email failed for ${invRow.invoice_number}: ${emailRes.error}`)
+            try {
+              await admin.from('notification_failures').insert({
+                kind: 'client', context: `stripe-webhook:receipt:${invRow.invoice_number}`,
+                subject, to_email: toEmail, error: emailRes.error,
+                payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html },
+              })
+            } catch (e) { console.error(`failed to persist: ${(e as Error).message}`) }
+          }
+
+          // Internal notification to Case
+          const caseNotif = buildInternalNotification({
+            kind: 'payment_succeeded',
+            clientName: invRow.clients?.legal_name || invRow.clients?.name || 'Unknown client',
+            brandName: invRow.brands?.name || 'your account',
+            invoiceNumber: invRow.invoice_number,
+            amount: invRow.total,
+            paidDate: invRow.paid_date,
+            appUrl: APP_URL,
+          })
+          await notifyCase(caseNotif.subject, caseNotif.html, `stripe-webhook:notify-case:paid:${invRow.invoice_number}`)
+        } catch (sideEffectErr) {
+          console.error(`[payment_intent.succeeded] post-commit side-effect error for ${metaId}: ${(sideEffectErr as Error).message}`)
           try {
             await admin.from('notification_failures').insert({
-              kind: 'client', context: `stripe-webhook:receipt:${invRow.invoice_number}`,
-              subject, to_email: toEmail, error: emailRes.error,
-              payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html },
+              kind: 'internal',
+              context: `stripe-webhook:post-commit-error:payment_intent.succeeded:${metaId}`,
+              subject: `⚠ post-commit side-effect error after PI succeeded (${pi.id})`,
+              to_email: CASE_NOTIFY_EMAIL,
+              error: (sideEffectErr as Error).message,
+              payload: { event_id: event.id, invoice_id: metaId, event_type: event.type },
             })
-          } catch (e) { console.error(`failed to persist: ${(e as Error).message}`) }
+          } catch (persistErr) {
+            console.error(`[stripe-webhook] failed to persist post-commit DLQ: ${(persistErr as Error).message}`)
+          }
         }
-
-        // Internal notification to Case
-        const caseNotif = buildInternalNotification({
-          kind: 'payment_succeeded',
-          clientName: invRow.clients?.legal_name || invRow.clients?.name || 'Unknown client',
-          brandName: invRow.brands?.name || 'your account',
-          invoiceNumber: invRow.invoice_number,
-          amount: invRow.total,
-          paidDate: invRow.paid_date,
-          appUrl: APP_URL,
-        })
-        await notifyCase(caseNotif.subject, caseNotif.html, `stripe-webhook:notify-case:paid:${invRow.invoice_number}`)
         break
       }
       case 'payment_intent.payment_failed': {
@@ -350,62 +392,78 @@ Deno.serve(async (req: Request) => {
           break
         }
 
-        // Send failure notification to client. Non-blocking — if email fails,
-        // Case still has the DB flag + Stripe dashboard as backstops.
-        const invRow = res.data[0] as {
-          invoice_number: string
-          total: number | string
-          description: string | null
-          due_date: string
-          clients?: { billing_email?: string | null; legal_name?: string | null; name?: string | null } | null
-          brands?: { name?: string | null } | null
-        }
-        const toEmail = invRow.clients?.billing_email
-        if (!toEmail) {
-          console.warn(`[payment_intent.payment_failed] ${invRow.invoice_number}: no billing_email — skipping failure email`)
-          break
-        }
-        const { subject, html } = buildPaymentFailedEmail({
-          clientName: invRow.clients?.legal_name || invRow.clients?.name || 'there',
-          brandName: invRow.brands?.name || invRow.clients?.legal_name || invRow.clients?.name || 'your account',
-          invoiceNumber: invRow.invoice_number,
-          description: invRow.description || '',
-          amount: invRow.total,
-          dueDate: invRow.due_date,
-          failureReason: failureMessage,
-        })
-        const emailRes = await sendClientEmail({
-          apiKey: RESEND_API_KEY,
-          from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
-          replyTo: BRAND_REPLY_TO,
-          to: toEmail,
-          bcc: [CASE_NOTIFY_EMAIL],
-          subject,
-          html,
-          context: `stripe-webhook:failed:${invRow.invoice_number}`,
-        })
-        if (!emailRes.ok) {
-          console.error(`[payment_intent.payment_failed] failure email failed for ${invRow.invoice_number}: ${emailRes.error}`)
+        // Post-DB-commit side effects wrapped (see payment_intent.succeeded
+        // above for rationale). Audit 2026-04-22 A1 MEDIUM #3.
+        try {
+          const invRow = res.data[0] as {
+            invoice_number: string
+            total: number | string
+            description: string | null
+            due_date: string
+            clients?: { billing_email?: string | null; legal_name?: string | null; name?: string | null } | null
+            brands?: { name?: string | null } | null
+          }
+          const toEmail = invRow.clients?.billing_email
+          if (!toEmail) {
+            console.warn(`[payment_intent.payment_failed] ${invRow.invoice_number}: no billing_email — skipping failure email`)
+            break
+          }
+          const { subject, html } = buildPaymentFailedEmail({
+            clientName: invRow.clients?.legal_name || invRow.clients?.name || 'there',
+            brandName: invRow.brands?.name || invRow.clients?.legal_name || invRow.clients?.name || 'your account',
+            invoiceNumber: invRow.invoice_number,
+            description: invRow.description || '',
+            amount: invRow.total,
+            dueDate: invRow.due_date,
+            failureReason: failureMessage,
+          })
+          const emailRes = await sendClientEmail({
+            apiKey: RESEND_API_KEY,
+            from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`,
+            replyTo: BRAND_REPLY_TO,
+            to: toEmail,
+            bcc: [CASE_NOTIFY_EMAIL],
+            subject,
+            html,
+            context: `stripe-webhook:failed:${invRow.invoice_number}`,
+          })
+          if (!emailRes.ok) {
+            console.error(`[payment_intent.payment_failed] failure email failed for ${invRow.invoice_number}: ${emailRes.error}`)
+            try {
+              await admin.from('notification_failures').insert({
+                kind: 'client', context: `stripe-webhook:failed:${invRow.invoice_number}`,
+                subject, to_email: toEmail, error: emailRes.error,
+                payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html },
+              })
+            } catch (e) { console.error(`failed to persist: ${(e as Error).message}`) }
+          }
+
+          // Internal notification to Case
+          const caseNotif = buildInternalNotification({
+            kind: 'payment_failed',
+            clientName: invRow.clients?.legal_name || invRow.clients?.name || 'Unknown client',
+            brandName: invRow.brands?.name || 'your account',
+            invoiceNumber: invRow.invoice_number,
+            amount: invRow.total,
+            reason: failureMessage,
+            appUrl: APP_URL,
+          })
+          await notifyCase(caseNotif.subject, caseNotif.html, `stripe-webhook:notify-case:failed:${invRow.invoice_number}`)
+        } catch (sideEffectErr) {
+          console.error(`[payment_intent.payment_failed] post-commit side-effect error for ${metaId}: ${(sideEffectErr as Error).message}`)
           try {
             await admin.from('notification_failures').insert({
-              kind: 'client', context: `stripe-webhook:failed:${invRow.invoice_number}`,
-              subject, to_email: toEmail, error: emailRes.error,
-              payload: { from: `${BRAND_NAME} <${BRAND_FROM_EMAIL}>`, reply_to: BRAND_REPLY_TO, html },
+              kind: 'internal',
+              context: `stripe-webhook:post-commit-error:payment_intent.payment_failed:${metaId}`,
+              subject: `⚠ post-commit side-effect error after PI failed (${pi.id})`,
+              to_email: CASE_NOTIFY_EMAIL,
+              error: (sideEffectErr as Error).message,
+              payload: { event_id: event.id, invoice_id: metaId, event_type: event.type },
             })
-          } catch (e) { console.error(`failed to persist: ${(e as Error).message}`) }
+          } catch (persistErr) {
+            console.error(`[stripe-webhook] failed to persist post-commit DLQ: ${(persistErr as Error).message}`)
+          }
         }
-
-        // Internal notification to Case
-        const caseNotif = buildInternalNotification({
-          kind: 'payment_failed',
-          clientName: invRow.clients?.legal_name || invRow.clients?.name || 'Unknown client',
-          brandName: invRow.brands?.name || 'your account',
-          invoiceNumber: invRow.invoice_number,
-          amount: invRow.total,
-          reason: failureMessage,
-          appUrl: APP_URL,
-        })
-        await notifyCase(caseNotif.subject, caseNotif.html, `stripe-webhook:notify-case:failed:${invRow.invoice_number}`)
         break
       }
       case 'payment_intent.processing': {

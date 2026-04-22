@@ -1046,18 +1046,21 @@ function ActivityTab({ project, onLogWork, refreshKey }) {
           <div className="toolbar-filters" style={{ marginLeft: 'auto' }}>
             <button
               className={`filter-pill ${serviceFilter === 'all' ? 'active' : ''}`}
+              aria-pressed={serviceFilter === 'all'}
               onClick={() => setServiceFilter('all')}
             >all</button>
             {activeServices.map((s) => (
               <button
                 key={s.id}
                 className={`filter-pill ${serviceFilter === s.id ? 'active' : ''}`}
+                aria-pressed={serviceFilter === s.id}
                 onClick={() => setServiceFilter(s.id)}
                 title={s.name}
               >{s.name}</button>
             ))}
             <button
               className={`filter-pill ${serviceFilter === 'general' ? 'active' : ''}`}
+              aria-pressed={serviceFilter === 'general'}
               onClick={() => setServiceFilter('general')}
             >general</button>
           </div>

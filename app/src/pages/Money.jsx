@@ -677,13 +677,13 @@ function ExpensesTab() {
       <div className="list-toolbar">
         <div className="toolbar-filters">
           {years.map((y) => (
-            <button key={y} className={`filter-pill ${year === y ? 'active' : ''}`} onClick={() => setYear(y)}>{y}</button>
+            <button key={y} className={`filter-pill ${year === y ? 'active' : ''}`} aria-pressed={year === y} onClick={() => setYear(y)}>{y}</button>
           ))}
-          <button className={`filter-pill ${year === 'all' ? 'active' : ''}`} onClick={() => setYear('all')}>ALL</button>
+          <button className={`filter-pill ${year === 'all' ? 'active' : ''}`} aria-pressed={year === 'all'} onClick={() => setYear('all')}>ALL</button>
         </div>
         <div className="toolbar-filters">
           {categories.map((c) => (
-            <button key={c} className={`filter-pill ${filterCat === c ? 'active' : ''}`} onClick={() => setFilterCat(c)}>{c.replace('_', ' ')}</button>
+            <button key={c} className={`filter-pill ${filterCat === c ? 'active' : ''}`} aria-pressed={filterCat === c} onClick={() => setFilterCat(c)}>{c.replace('_', ' ')}</button>
           ))}
         </div>
       </div>

@@ -38,7 +38,7 @@ the safety net.
 - Check function logs; usually a transient Resend or DB blip.
 - Safe to ignore if the next day's run succeeds.
 
-### `Stale: laviolette_generate_retainer_invoices`
+### `Stale: laviolette_retainer_invoices`
 Monthly, fires on the 1st at 00:01 CT. If stale, upcoming retainers won't have
 invoice rows.
 

@@ -29,16 +29,24 @@ Deno.serve(async (req: Request) => {
 
   const date = today()
 
-  // Filter also by start_date — a retainer may be `status='active'` (set when
-  // the contract is signed) but not yet in service (start_date in the future).
-  // Without this check we'd spam daily_rounds rows before the engagement
-  // begins, cluttering the Today page with tasks the client hasn't paid for yet.
-  // Legacy retainers with NULL start_date are treated as already-running.
+  // Filter by start_date — a retainer may be `status='active'`/`scheduled`
+  // (set when the contract is signed) but not yet in service (start_date in
+  // the future). The start_date check keeps rounds from generating before
+  // engagement begins. Legacy retainers with NULL start_date are treated
+  // as already-running.
+  //
+  // Include both `active` AND `scheduled` statuses: on a scheduled→active
+  // transition day (e.g. 2026-05-01 for Dustin's 3 retainers), this cron
+  // runs at 01:01 CDT while `advance-contract-status` doesn't flip to
+  // active until 06:05 CDT. Without `scheduled` in the filter, the first
+  // day's rounds never get pre-seeded and the day-2 "missed rounds
+  // yesterday" counter reads 0 for those brands. Audit 2026-04-22 A3
+  // MEDIUM — cron ordering gap.
   const { data: projects } = await admin
     .from('projects')
     .select('id, brand_id, start_date, brands(id, name, instagram_url, facebook_url, gbp_url, yelp_url, apple_maps_url), retainer_services(name, description, platforms, active)')
     .eq('type', 'retainer')
-    .eq('status', 'active')
+    .in('status', ['active', 'scheduled'])
     .or(`start_date.is.null,start_date.lte.${date}`)
 
   if (!projects || projects.length === 0) {

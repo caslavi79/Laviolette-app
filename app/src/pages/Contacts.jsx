@@ -573,6 +573,16 @@ function ContactDetail({
       if (bf) monthlyRecurring += bf.retainerMonthly
     }
   }
+  // Contract-aware conversion override: mirrors the StagePill logic at
+  // line 71-74 + v_stale_leads predicate from migration 20260421000002.
+  // When a contact has any non-draft/sent contract, they're converted —
+  // the frozen lead_details (scope_summary, next_step, lead notes,
+  // source label) should hide from the detail pane so the operator
+  // doesn't see stale pre-signing pipeline metadata alongside live
+  // client work. Audit 2026-04-22 A8 MEDIUM.
+  const hasSignedContract = (contact.clients || []).some((cl) =>
+    (cl.contracts || []).some((ct) => !['draft','sent'].includes(ct.status))
+  )
 
   return (
     <div className="detail-pane">
@@ -596,6 +606,7 @@ function ContactDetail({
       </div>
 
       {(() => {
+        if (hasSignedContract) return null
         const ld = leadDetailsOf(contact)
         if (!ld) return null
         const sourceLabel = ld.referred_by
@@ -613,6 +624,7 @@ function ContactDetail({
       )}
 
       {(() => {
+        if (hasSignedContract) return null
         const ld = leadDetailsOf(contact)
         if (!ld) return null
         const pillColor = LEAD_STAGE_COLOR[ld.stage] || 'var(--border-strong)'
