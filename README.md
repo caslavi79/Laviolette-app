@@ -11,7 +11,7 @@ payments for a small consultancy.
 |---|---|---|
 | Frontend | React 19 + Vite + React Router 7 | Single-user SPA, hand-rolled CSS (no framework), mobile-first |
 | Backend | Supabase | Postgres 17 + Auth + Storage + Edge Functions (Deno) |
-| Scheduling | `pg_cron` + `pg_net` | 7 cron jobs fire HTTP POST to edge functions |
+| Scheduling | `pg_cron` + `pg_net` | 9 cron jobs fire HTTP POST to edge functions |
 | Email | [Resend](https://resend.com) | Domain `laviolette.io` verified in us-east-1 |
 | Payments | Stripe LIVE mode | ACH via PaymentIntent (not Stripe Billing — avoids 0.5% fee) |
 | Deploy | `gh-pages` | Pushes `dist/` to `caslavi79/Laviolette-app-deploy`, GitHub Pages serves it |
@@ -47,7 +47,7 @@ Laviolette-app/
 ├── app/                        # React source (Vite)
 │   ├── index.html              # <meta name="referrer"> + Google Fonts
 │   ├── src/
-│   │   ├── App.jsx             # Routes (10 pages) + per-page ErrorBoundary
+│   │   ├── App.jsx             # Routes (12 pages) + per-page ErrorBoundary
 │   │   ├── App.css             # All styles (one file, hand-rolled)
 │   │   ├── main.jsx
 │   │   ├── components/
@@ -87,11 +87,12 @@ Laviolette-app/
 │   ├── deploy-edge.sh          # Deploy all 19 production edge functions in one pass
 │   └── README.md               # Per-script docs
 ├── supabase/
-│   ├── migrations/             # 29 versioned SQL files (enums → tables → triggers →
+│   ├── migrations/             # 31 versioned SQL files (enums → tables → triggers →
 │   │                           #   RLS → storage → contracts-signing → stripe idempotency →
 │   │                           #   payment indexes → notification_failures → cron observability →
 │   │                           #   lead tracking → work log → monthly recaps → health checks →
-│   │                           #   invoice bank-link → pending-sent-date partial index)
+│   │                           #   invoice bank-link → pending-sent-date partial index →
+│   │                           #   scheduled project_status enum + backfill)
 │   ├── functions/              # 20 Deno edge functions (19 production + run-pipeline-test manual ops tool)
 │   │   ├── _shared/            # client-emails.ts, business-days.ts
 │   │   ├── stripe-webhook/     # 14 Stripe events + idempotency + HQ alerts
@@ -110,7 +111,7 @@ Laviolette-app/
 │   │   ├── send-manual-receipt/    # Fire receipt + HQ alert for MarkPaidModal wire/check payments
 │   │   └── health/             # Public GET — cron status + DLQ count + pending invoices
 │   └── sql/
-│       └── cron-schedule.sql   # pg_cron setup (7 jobs, DST-corrected)
+│       └── cron-schedule.sql   # pg_cron setup (9 jobs, DST-corrected)
 ├── OPS.md                      # Day-to-day ops runbook
 ├── README.md                   # This file
 └── package.json                # Root scripts (stripe-setup, db:verify, apply-migrations, generate-contract)
@@ -136,7 +137,7 @@ real values. Both `.env.local` and `app/.env` are gitignored.
 
 Edge function secrets live in Supabase Dashboard
 ([Settings → Functions](https://supabase.com/dashboard/project/sukcufgjptllzucbneuj/settings/functions)),
-NOT in this repo. See [OPS.md](OPS.md) for the list (~16 secrets).
+NOT in this repo. See [OPS.md](OPS.md) for the list (17 user-set secrets + 4 Supabase auto-provided).
 
 ## Status (2026-04-21 — snapshot; see [OPS.md](OPS.md) for live values)
 
@@ -157,6 +158,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (~16 secrets).
 | 4.5. Stripe webhook | ✅ | **14 events** subscribed, idempotency table, HQ alerts via `notifyCase`, handlers for paid/failed/canceled/processing/dispute/refund/mandate/pm_detached |
 | 4.6. Cron schedule | ✅ | **9 jobs** active, DST-corrected `1 6 UTC` past midnight CT in both seasons, fire-day-reminder at 9 AM CT weekdays |
 | 4.11. Fire-day reminder | ✅ | 9 AM CT weekdays. Emails Case eligible + blocked invoices with "Fire now" deep-links. Manual-first + auto-push safety net pattern. |
+| 4.12. Scheduled project status | ✅ | First-class `scheduled` value in `project_status` enum (signed-but-not-yet-started). `contract-sign` routes projects to `scheduled` vs `active` on `start_date`; `advance-contract-status` daily cron flips `scheduled → active` on due date. Surfaced across Projects / Money (Active MRR vs Scheduled MRR) / Contacts. |
 | 4.7. Resend | ✅ | Domain verified, API key set, BCC on all client emails, DLQ on failures |
 | 4.8. Dead-letter queue | ✅ | `notification_failures` table (RLS, CHECK constraints, partial index) + retry edge fn + UI |
 | 4.9. Health endpoint | ✅ | `/functions/v1/health` → cron staleness + DLQ count, curl-able for external monitoring |
