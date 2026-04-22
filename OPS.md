@@ -264,6 +264,13 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   UptimeRobot alert subject preview and makes the alert actionable
   without opening the app (e.g. "Stale:
   laviolette_auto_push_invoices last ran 14h ago.").
+- **`health_checks` retention:** no automatic cleanup in v1. UptimeRobot's
+  5-min cadence produces ~288 rows/day = ~8.6k rows/month. At current pace,
+  reaching 1M rows takes ~9.5 years, so no immediate action needed — but
+  review row count annually (`SELECT COUNT(*) FROM public.health_checks`)
+  and add a `public.prune_health_checks(older_than interval)` scheduled
+  cron if the table crosses 500k rows. Audit 2026-04-22 A7 LOW — note
+  added to prevent silent unbounded growth.
 - Every `/health` probe is logged to `public.health_checks`
   (fire-and-forget; a logging failure never flips a healthy 200 →
   503). Time-series visible at `/incidents` (authenticated). Rolling
