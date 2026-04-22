@@ -45,13 +45,31 @@ Deno.serve(async (req: Request) => {
     month: 'long', year: 'numeric', timeZone: 'UTC',
   })
 
-  // Load active retainer projects with brand + client
-  const { data: projects, error: projectsErr } = await admin
+  // Load retainer projects eligible for next-month invoicing:
+  //   - status='active': already in-service retainers (most months, all match here)
+  //   - status='scheduled' AND start_date<=monthStart: a signed retainer whose
+  //     start_date arrives no later than the target period's first day. Matters
+  //     on the 1st of the month when generate-retainer-invoices (00:01 CT) runs
+  //     BEFORE advance-contract-status (05:05 CT) flips scheduled→active;
+  //     without this acceptance, Dustin's 3 May-1 retainers would miss their
+  //     first June invoice generation on May 1 00:01.
+  // Decoupled from cron-ordering by filtering on start_date instead of
+  // counting on the advance-cron to have run first.
+  const { data: projectsRaw, error: projectsErr } = await admin
     .from('projects')
-    .select('id, name, total_fee, brand_id, type, status, brands(id, name, client_id)')
+    .select('id, name, total_fee, brand_id, type, status, start_date, brands(id, name, client_id)')
     .eq('type', 'retainer')
-    .eq('status', 'active')
+    .in('status', ['active', 'scheduled'])
     .not('total_fee', 'is', null)
+
+  // Exclude scheduled retainers whose start_date is after the target period
+  // start. A retainer starting June 15 wouldn't get billed for June 1; it'd
+  // get billed for July 1 instead. Non-issue for Case's current 1st-of-month
+  // retainers but defense-in-depth for any future mid-month starts. Active
+  // retainers pass through unconditionally.
+  const projects = (projectsRaw || []).filter((p: { status: string; start_date: string | null }) =>
+    p.status === 'active' || (p.start_date != null && p.start_date <= monthStart)
+  )
 
   if (projectsErr) {
     console.error('generate-retainer-invoices: failed to load projects:', projectsErr.message)
@@ -61,8 +79,8 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  if (!projects || projects.length === 0) {
-    return new Response(JSON.stringify({ ok: true, created: 0, reason: 'No active retainers' }), {
+  if (projects.length === 0) {
+    return new Response(JSON.stringify({ ok: true, created: 0, reason: 'No eligible retainers (active or scheduled-starting-by-target-month)' }), {
       headers: { 'Content-Type': 'application/json' },
     })
   }
