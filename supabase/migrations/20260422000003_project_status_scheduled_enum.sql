@@ -1,0 +1,24 @@
+-- =============================================================
+-- 20260422000003_project_status_scheduled_enum.sql
+-- Adds 'scheduled' as a first-class value on the project_status
+-- enum, representing a signed-but-not-yet-started engagement
+-- (start_date is in the future). Inserted AFTER 'draft' so the
+-- logical ordering matches the lifecycle:
+--
+--     draft → scheduled → active → paused|complete|cancelled
+--
+-- NOTE: Postgres cannot USE a newly-added enum value in the same
+-- transaction that adds it. This migration only adds the value;
+-- the backfill UPDATE that flips signed-but-future-start projects
+-- from 'active' to 'scheduled' lives in the companion migration
+-- 20260422000004_project_status_scheduled_backfill.sql, which
+-- runs in its own transaction after this one commits.
+--
+-- Zero impact on existing rows — this migration is purely a type
+-- extension. Readers that accept the other project_status values
+-- don't need changes unless they care about the distinction
+-- (contract-sign and advance-contract-status are updated
+-- separately to produce/consume the new value).
+-- =============================================================
+
+ALTER TYPE project_status ADD VALUE IF NOT EXISTS 'scheduled' AFTER 'draft';
