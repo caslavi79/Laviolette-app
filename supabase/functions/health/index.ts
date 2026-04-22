@@ -120,6 +120,7 @@ Deno.serve(async (req: Request) => {
     last_run: string | null
     last_status: string | null
     last_return_message: string | null
+    active?: boolean | null
   }>
 
   const stale: Array<{ jobname: string; last_run: string; hours_ago: number }> = []
@@ -128,6 +129,14 @@ Deno.serve(async (req: Request) => {
   for (const row of cron) {
     const max = MAX_GAP_HOURS[row.jobname]
     if (!max) continue
+    // Deactivated jobs (active=false) don't run. Treating them as stale
+    // would false-positive — if the operator intentionally turned the
+    // job off (e.g. the 2026-04-21 auto-charge kill-switch), /health
+    // should not alert on them. Migration 20260422000005 added the
+    // `active` field to the RPC. Older deployments without the field
+    // default to `undefined` which stays in the stale-check path
+    // (backwards compat).
+    if (row.active === false) continue
     if (!row.last_run) {
       pending.push(row.jobname)
       continue
