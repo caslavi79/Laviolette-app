@@ -119,11 +119,17 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
 
 ## Current state (as of 2026-04-21)
 
-- ✅ **Database** — **29 migrations applied** (full list + tracking in
-  `public._claude_migrations`; most recent adds: `v_stale_leads_contract_aware`,
-  `invoice_bank_link_url`, `invoices_pending_sent_date_partial_index`). RLS
-  on every table. Direct-pg connection on port 5432 (pooler 6543 broken —
-  use direct).
+- ✅ **Database** — **31 migrations applied** (full list + tracking in
+  `public._claude_migrations`; most recent adds: `invoice_bank_link_url`,
+  `invoices_pending_sent_date_partial_index`, `project_status_scheduled_enum`,
+  `project_status_scheduled_backfill`). RLS on every table. Direct-pg
+  connection on port 5432 (pooler 6543 broken — use direct).
+- ✅ **Project lifecycle** — `project_status` enum now has a first-class
+  `scheduled` value between `draft` and `active` (added 2026-04-22,
+  migration `20260422000003`). Signed-but-not-yet-started engagements
+  (start_date in the future) live here. State machine:
+  `draft → scheduled (sign + start_date > today) | active (sign + start_date <= today) → active (via cron on start_date) → paused|complete|cancelled`.
+  Advance handled daily by `advance-contract-status` at 05:05 CT.
 - ✅ **Auth** — `case.laviolette@gmail.com` exists in Supabase Auth.
   Forgot-password uses Supabase's default email provider (SendGrid).
 - ✅ **Frontend** — live at https://app.laviolette.io. **8
@@ -914,7 +920,7 @@ single-user app).
 
 | Metric | Value |
 |---|---|
-| Migrations applied | 29 (most recent: `20260422000002_invoices_pending_sent_date_partial_index.sql` — audit Round 3 perf index on pending invoices). `_claude_migrations` row count matches filesystem. |
+| Migrations applied | 31 (most recent: `20260422000003_project_status_scheduled_enum.sql` + `20260422000004_project_status_scheduled_backfill.sql` — adds the `scheduled` project status value + backfills Dustin's 3 May-1 retainers from active to scheduled). `_claude_migrations` row count matches filesystem. |
 | Edge functions deployed | 20 total (19 production in `deploy-edge.sh` + `run-pipeline-test` manual). `deploy-edge.sh` pinned to `supabase@2.93.0` (audit Round 3). |
 | Webhook events subscribed | 14 |
 | Cron jobs active | 9 (all under `laviolette_*` prefix, all active, see "Cron endpoints" table below) |
@@ -925,7 +931,8 @@ single-user app).
 | In-flight ACH | 2 — Nicole `pi_3TOhHzRzgnRnD0Dt0uGb2WtG` + Viktoriia `pi_3TOiitRzgnRnD0Dt0h8gGu0J`, both $1,700 Variant-C buildouts, both `status=processing` on Stripe as of 2026-04-21 end of session. Webhook will flip invoices → paid + send receipts on settlement (~Apr 23-24). |
 | Stripe customers | 4 active real (VBTX `cus_UKmJZNKc8Bn9aZ`, Velvet Leaf `cus_ULBcilbNsoq0Kp`, Nicole James `cus_UNBgjM5C9n7gkX`, Viktoriia Jones `cus_UNTJyt4qyKv2Wm`) + 1 audit-trail test customer `cus_UNW150fcvgvWJn` (intentionally kept, flagged via `metadata.laviolette_test`). |
 | DB clients | 5 (VBTX + Velvet Leaf = active/Dustin; Exodus 1414 = lead/Cody; Nicole James + Viktoriia Jones = lead, signed + in-flight). |
-| Contracts | 7 — 4 active (Dustin: 3 retainers + 1 buildout) + 2 signed (Nicole + Viktoriia, 2026-04-21 buildouts, Variant C) + 1 draft (Exodus 1414 buildout, regenerated with marker-based template 2026-04-21). |
+| Contracts | 7 — Dustin's 4 (3 retainers + 1 buildout) + Nicole + Viktoriia (both signed 2026-04-21, Variant C buildouts) + Exodus 1414 (draft buildout, marker-regenerated 2026-04-21). |
+| Projects by status | 3 scheduled (Dustin's 3 retainers, start_date 2026-05-01) + 3 active (Citrus and Salt Buildout start_date=Apr 15, Nicole + Viktoriia buildouts start_date=today) + 1 draft (Exodus). Flip to active at 05:05 CT on each project's start_date via `advance-contract-status`. |
 | Lead details rows | 3 (Cody Welch, Nicole James, Viktoriia Jones). Dustin correctly absent (customer, not lead). |
 | Last frontend deploy | 2026-04-21 audit Round 2: `index-BnBkH3Ws.js` / `index-DXISWbym.css` (post-Round-3 Commit-4 redeploy; see commit ledger). |
 | Last edge-function deploy | 2026-04-21 audit Round 3: `send-invoice`, `send-manual-receipt`, `send-monthly-recap`, `stripe-webhook`, `contract-sign`, `generate-monthly-recaps` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt` (M2 guard + M8 BCC + M9 threat-model doc + M3 PNG magic + M4 marker regex). Flag `ENABLE_UNIFIED_ONBOARDING=true` on Supabase secrets (digest `b5bea41b…` = sha256("true")). |

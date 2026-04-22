@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 
 const STATUS_OPTS = [
   { value: 'draft', label: 'Draft' },
+  { value: 'scheduled', label: 'Scheduled (signed, awaiting start_date)' },
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
   { value: 'complete', label: 'Complete' },

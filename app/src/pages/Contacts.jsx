@@ -259,7 +259,14 @@ export default function Contacts() {
     const retainerProjectByBrand = new Map()
     for (const p of projRes.data || []) {
       const entry = byBrand.get(p.brand_id) || { buildoutTotal: 0, retainerMonthly: 0 }
-      if (p.type === 'retainer' && p.status === 'active') entry.retainerMonthly += parseFloat(p.total_fee) || 0
+      // Include both 'active' AND 'scheduled' retainers in the per-client
+       // monthly figure — from the operator's POV the client is "worth $X/mo"
+       // as soon as the contract is signed, regardless of whether start_date
+       // has arrived. The "active" MRR distinction lives in Money.jsx where
+       // it matters for revenue attribution; at the Contacts level this is
+       // ambient context ("Dustin = $3,600/mo client") that shouldn't flicker
+       // to $0 in the limbo between sign and start_date.
+      if (p.type === 'retainer' && (p.status === 'active' || p.status === 'scheduled')) entry.retainerMonthly += parseFloat(p.total_fee) || 0
       if (p.type === 'buildout') entry.buildoutTotal += parseFloat(p.total_fee) || 0
       byBrand.set(p.brand_id, entry)
       if (p.type === 'retainer' && !retainerProjectByBrand.has(p.brand_id)) {

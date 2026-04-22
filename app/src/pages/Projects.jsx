@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { fmtMoneyShort, fmtDate, badgeStyle, COLORS, colorForProjectStatus } from '../lib/format'
+import { fmtMoneyShort, fmtDate, badgeStyle, COLORS, colorForProjectStatus, projectDisplayLabel } from '../lib/format'
 import EditProjectModal from '../components/forms/EditProjectModal'
 import EditDeliverableModal from '../components/forms/EditDeliverableModal'
 import EditServiceModal from '../components/forms/EditServiceModal'
@@ -134,7 +134,7 @@ export default function Projects() {
           ))}
         </div>
         <div className="toolbar-filters">
-          {['active', 'draft', 'paused', 'complete', 'cancelled', 'all'].map((s) => (
+          {['active', 'scheduled', 'draft', 'paused', 'complete', 'cancelled', 'all'].map((s) => (
             <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} aria-pressed={filterStatus === s} onClick={() => setFilterStatus(s)}>{s}</button>
           ))}
         </div>
@@ -191,7 +191,7 @@ export default function Projects() {
                   >
                     <div className="project-row-top">
                       <div className="project-row-name">{p.name}</div>
-                      <span style={badgeStyle(colorForProjectStatus(p.status))}>{p.status}</span>
+                      <span style={badgeStyle(colorForProjectStatus(p.status))}>{projectDisplayLabel(p.status, p.start_date)}</span>
                     </div>
                     <div className="project-row-meta">
                       <span>{p.brands?.name || '—'}</span>
@@ -322,7 +322,7 @@ function ProjectDetail({
           </div>
         </div>
         <div className="detail-header-actions">
-          <span style={badgeStyle(colorForProjectStatus(project.status))}>{project.status}</span>
+          <span style={badgeStyle(colorForProjectStatus(project.status))}>{projectDisplayLabel(project.status, project.start_date)}</span>
           <button className="btn btn-link" onClick={onEdit}>Edit</button>
         </div>
       </div>

@@ -452,7 +452,7 @@ function RevenueTab() {
     Promise.all([
       supabase.from('invoices').select('id, client_id, total, paid_amount, paid_date, status, project_id, projects(id, type)'),
       supabase.from('expenses').select('amount, date'),
-      supabase.from('projects').select('id, brand_id, type, status, total_fee, brands(id, status, clients(id, status))'),
+      supabase.from('projects').select('id, brand_id, type, status, total_fee, start_date, brands(id, status, clients(id, status))'),
       supabase.from('clients').select('id, name, legal_name'),
     ]).then(([inv, ex, pr, cl]) => {
       if (inv.error) { setErr(inv.error.message); setLoading(false); return }
@@ -500,11 +500,26 @@ function RevenueTab() {
   // MRR only counts retainers whose brand + client are both currently active.
   // Offboarded brands or past clients with lingering active project rows would
   // otherwise inflate the recurring-revenue figure.
-  const monthlyRetainerMRR = projects
-    .filter((p) => p.type === 'retainer' && p.status === 'active')
+  //
+  // Active MRR  = retainers status='active' (post-start_date, currently billing).
+  // Scheduled MRR = retainers status='scheduled' (signed + start_date in the
+  //                 future). Tracked separately so "Active MRR" stays honest
+  //                 about what's currently producing revenue, without losing
+  //                 visibility into committed-but-not-yet-started contracts.
+  const retainersMrrEligible = projects
+    .filter((p) => p.type === 'retainer')
     .filter((p) => !p.brands || p.brands.status === 'active')
     .filter((p) => !p.brands?.clients || p.brands.clients.status === 'active')
+  const monthlyRetainerMRR = retainersMrrEligible
+    .filter((p) => p.status === 'active')
     .reduce((s, p) => s + (parseFloat(p.total_fee) || 0), 0)
+  const scheduledRetainerMRR = retainersMrrEligible
+    .filter((p) => p.status === 'scheduled')
+    .reduce((s, p) => s + (parseFloat(p.total_fee) || 0), 0)
+  const nextScheduledStart = retainersMrrEligible
+    .filter((p) => p.status === 'scheduled' && p.start_date)
+    .map((p) => p.start_date)
+    .sort()[0] || null
 
   const byClient = useMemo(() => {
     const m = new Map()
@@ -539,6 +554,12 @@ function RevenueTab() {
           <div className="revenue-line"><span>Total expenses</span><strong style={{ color: COLORS.red }}>{fmtMoneyShort(ytdExpenses)}</strong></div>
           <div className="revenue-line revenue-line--total"><span>YTD profit</span><strong>{fmtMoneyShort(ytdReceived - ytdExpenses)}</strong></div>
           <div className="revenue-line"><span>Active MRR</span><strong>{fmtMoneyShort(monthlyRetainerMRR)}/mo</strong></div>
+          {scheduledRetainerMRR > 0 && (
+            <div className="revenue-line">
+              <span>Scheduled MRR{nextScheduledStart ? ` (starts ${fmtDate(nextScheduledStart, { month: 'short', day: 'numeric' })})` : ''}</span>
+              <strong style={{ color: COLORS.slate }}>{fmtMoneyShort(scheduledRetainerMRR)}/mo</strong>
+            </div>
+          )}
         </div>
       </div>
 

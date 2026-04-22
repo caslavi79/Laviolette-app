@@ -104,10 +104,25 @@ export function contractDisplayLabel(status) {
 export function colorForProjectStatus(status) {
   switch (status) {
     case 'active':    return COLORS.copper
+    case 'scheduled': return COLORS.slate
     case 'complete':  return COLORS.green
     case 'paused':    return COLORS.amber
     case 'cancelled': return COLORS.red
     case 'draft':     return COLORS.steel
     default:          return COLORS.steel
   }
+}
+
+/* Humanized display label for project status. Raw enum has `scheduled`
+ * (signed + start_date in future) as a distinct state from `active` since
+ * migration 20260422000003. For display, scheduled projects surface their
+ * start date inline so the operator sees "when does this actually begin."
+ * Non-scheduled rows pass through with the raw enum value (lowercase —
+ * the badge styling upper-cases visually). */
+export function projectDisplayLabel(status, startDate) {
+  if (status === 'scheduled') {
+    const d = startDate ? fmtDate(startDate, { month: 'short', day: 'numeric' }) : 'start TBD'
+    return `scheduled · starts ${d}`
+  }
+  return status
 }
