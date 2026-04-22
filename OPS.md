@@ -128,14 +128,20 @@ stripe webhook_endpoints update we_1TMvVWRzgnRnD0DtDCBU6iTE \
   tables, adds `kind` enum {focus|event|blackout} on overrides,
   adds `updated_at` trigger to overrides). RLS on every table.
   Direct-pg connection on port 5432 (pooler 6543 broken — use direct).
-- ✅ **Log Work v2** — `LogWorkModal` now takes a time window +
-  multi-select tasks + shared notes, inserts N rows with a shared
-  `session_id`. Today tally shows `N items · M sessions` subtitle;
-  expand-list groups by session. ActivityTab shows time-range
-  display per row when `started_at` is present. Recap aggregator
-  (`generate-monthly-recaps`) unchanged — sessions are invisible
-  to the per-service+month grouping. Shipped 2026-04-22 commit
-  `232f1db`.
+- ✅ **Log Work v2.1** — minimalist modal: brand + session window
+  + notes (primary, required) + optional link. One row per save
+  with `service_id=NULL`; `title` auto-derives from the first line
+  of notes (satisfies the NOT NULL CHECK without a separate field).
+  The multi-select task checkboxes from initial v2 were stripped
+  per Case's feedback ("the selections make me have to read and
+  consider which category vs just selecting the company and
+  writing quickly what i did for the last 4 hours"). ActivityTab
+  is flat chronological — no service filter pills, no per-service
+  grouping, single-line sessions don't expand (nothing to reveal).
+  Session_id column still populated so future retroactive tagging
+  stays possible without a migration. Shipped across commits
+  `232f1db` (v2) → `ce43ef8` (v2.1 form strip) → `2e79e80`
+  (ActivityTab flat).
 - ✅ **Schedule v2 (agenda)** — `/schedule` replaced the rigid
   7×3 grid (AM/PM/all-day cells per brand) with a vertical timeline
   agenda. Flexible time ranges, overlay semantics for exceptions.
@@ -984,7 +990,7 @@ single-user app).
 | Contracts | 7 — Dustin's 4 (3 retainers + 1 buildout) + Nicole + Viktoriia (both signed 2026-04-21, Variant C buildouts) + Exodus 1414 (draft buildout, marker-regenerated 2026-04-21). |
 | Projects by status | 3 scheduled (Dustin's 3 retainers, start_date 2026-05-01) + 3 active (Citrus and Salt Buildout start_date=Apr 15, Nicole + Viktoriia buildouts start_date=today) + 1 draft (Exodus). Flip to active at 05:05 CT on each project's start_date via `advance-contract-status`. |
 | Lead details rows | 3 (Cody Welch, Nicole James, Viktoriia Jones). Dustin correctly absent (customer, not lead). |
-| Last frontend deploy | 2026-04-22 Log Work v2 + Schedule v2: `index-ChcwEu8K.js` / `index-B0TGVw_f.css` — bundles session-grouped LogWorkModal (time window + multi-task + shared notes, batch insert with shared session_id), agenda-style Schedule.jsx (vertical timeline, flexible time ranges, overlay semantics), EditScheduleBlockModal v2 (kind picker + native time inputs + preset chips + notes field), Today.jsx session tally subtitle + session expand-list grouping + time-range primary-brand header. |
+| Last frontend deploy | 2026-04-22 Log Work v2.1 (ActivityTab flat) + Schedule v2: `index-C456V7HU.js` / `index-B0TGVw_f.css` — current bundle folds in the stripped LogWorkModal (brand + window + notes + link), flat chronological ActivityTab (no service filter/grouping), agenda-style Schedule.jsx (vertical timeline, overlay semantics), EditScheduleBlockModal v2 (kind picker + native time inputs + preset chips + notes). |
 | Last edge-function deploy | 2026-04-22 post-audit sweep: `check-overdue-invoices`, `send-reminders`, `stripe-webhook`, `contract-sign`, `generate-daily-rounds`, `auto-push-invoices`, `regenerate-bank-link`, `generate-monthly-recaps`, `send-monthly-recap`, `health` individually via `npx supabase@2.93.0 functions deploy <name> --no-verify-jwt`. Covers PI-null filters (C1), type=retainer gate, mandate.updated inactive-only, charge.refunded status table, payment_intent.succeeded paid_amount, post-commit side-effect try/catch, idempotency-cleanup DLQ, CT date routing, scheduled-status rounds, blocked-query project filter, DLQ payload error field, metadata-backfill soft DLQ, URL composition via new URL(), kill-switch log line, monthly-recaps context-prefix rename + destructure error, self-BCC skip, buildMessage prioritize DLQ, active-filter on stale_crons. Flags `ENABLE_UNIFIED_ONBOARDING=true` + `ENABLE_AUTO_CHARGE=false` on Supabase secrets. |
 | Last DB cleanup | 2026-04-21 Phase 6 extended (deleted Phase 6 test scaffold in single transaction; kept Stripe customer `cus_UNW150fcvgvWJn` as audit trail). |
 | Last DB repair | 2026-04-22 post-audit sweep: `UPDATE public._claude_migrations SET checksum='7a5ebe4f' WHERE version='20260422000004'` (Agent 10 CRITICAL — file hash on disk had drifted from the applied checksum, blocking future `apply-migrations.mjs` runs). Migration `20260422000005` then applied cleanly on top. |
