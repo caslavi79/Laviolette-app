@@ -1,6 +1,14 @@
 // advance-contract-status
-// Runs daily. signed → active when effective_date arrives.
-// active → expired when end_date < today AND auto_renew=false.
+// Runs daily at 05:05 CT. Advances date-driven lifecycle states:
+//   contracts.signed  → contracts.active   when effective_date <= today
+//   contracts.active  → contracts.expired  when end_date < today AND auto_renew=false
+//   projects.scheduled → projects.active   when start_date <= today (since
+//                                           the 'scheduled' value was added
+//                                           2026-04-22, migration 20260422000003)
+//
+// All three transitions are date-driven, atomic, idempotent (predicate
+// guards on current status), and never reverse themselves. A failure on
+// any one does not affect the others — each runs independently.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { todayCentral } from '../_shared/business-days.ts'
@@ -38,7 +46,25 @@ Deno.serve(async (req: Request) => {
     .not('end_date', 'is', null)
     .select('id')
 
-  return new Response(JSON.stringify({ ok: true, activated: (activated || []).length, expired: (expired || []).length }), {
+  // projects.scheduled → projects.active when start_date <= today.
+  // Idempotent: predicate status='scheduled' only matches scheduled rows,
+  // so re-runs no-op for already-advanced projects. start_date IS NOT NULL
+  // guard defends against schema drift; in practice scheduled is only set
+  // by contract-sign when start_date is non-null and future.
+  const { data: projectsActivated } = await admin
+    .from('projects')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('status', 'scheduled')
+    .lte('start_date', today)
+    .not('start_date', 'is', null)
+    .select('id')
+
+  return new Response(JSON.stringify({
+    ok: true,
+    activated: (activated || []).length,
+    expired: (expired || []).length,
+    projects_activated: (projectsActivated || []).length,
+  }), {
     headers: { 'Content-Type': 'application/json' },
   })
 })
