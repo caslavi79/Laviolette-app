@@ -87,30 +87,37 @@ Laviolette-app/
 │   ├── deploy-edge.sh          # Deploy all 19 production edge functions in one pass
 │   └── README.md               # Per-script docs
 ├── supabase/
-│   ├── migrations/             # 32 versioned SQL files (enums → tables → triggers →
+│   ├── migrations/             # 34 versioned SQL files (enums → tables → triggers →
 │   │                           #   RLS → storage → contracts-signing → stripe idempotency →
 │   │                           #   payment indexes → notification_failures → cron observability →
 │   │                           #   lead tracking → work log → monthly recaps → health checks →
 │   │                           #   invoice bank-link → pending-sent-date partial index →
 │   │                           #   scheduled project_status enum + backfill →
-│   │                           #   column COMMENTs backfill + get_last_cron_runs.active)
-│   ├── functions/              # 20 Deno edge functions (19 production + run-pipeline-test manual ops tool)
-│   │   ├── _shared/            # client-emails.ts, business-days.ts
+│   │                           #   column COMMENTs backfill + get_last_cron_runs.active →
+│   │                           #   work_log session_id/started_at/ended_at (Log Work v2) →
+│   │                           #   schedule flexible times + kind taxonomy (Schedule v2))
+│   ├── functions/              # 21 directories: 19 production + run-pipeline-test (manual) + _shared/ helpers
+│   │   ├── _shared/            # client-emails.ts, business-days.ts, recap-template.ts
 │   │   ├── stripe-webhook/     # 14 Stripe events + idempotency + HQ alerts
 │   │   ├── auto-push-invoices/ # ACH firing via atomic-claim PI (disabled 2026-04-21 — ENABLE_AUTO_CHARGE=false + crons inactive)
 │   │   ├── create-stripe-invoice/   # "Charge via ACH" button handler
 │   │   ├── create-setup-session/    # Stripe Checkout bank-link (UI path)
+│   │   ├── regenerate-bank-link/    # Mint fresh 24h Stripe Checkout session + re-send invoice email
 │   │   ├── contract-send/      # Send contract for e-sign
-│   │   ├── contract-sign/      # PUBLIC sign handler (GET + POST)
+│   │   ├── contract-sign/      # PUBLIC sign handler (GET + POST); unified-onboarding synthesis when flag ON
+│   │   ├── send-invoice/       # Invoice document email (fires auto on contract-sign for unified flow)
 │   │   ├── generate-retainer-invoices/  # Monthly cron — creates next-month retainer invoices
 │   │   ├── generate-daily-rounds/       # Daily cron — creates today's daily_rounds rows
 │   │   ├── check-overdue-invoices/      # Daily cron — pending/sent → overdue
-│   │   ├── advance-contract-status/     # Daily cron — signed → active on effective_date
+│   │   ├── advance-contract-status/     # Daily cron — signed → active on effective_date, scheduled → active on start_date
 │   │   ├── send-reminders/     # Daily digest email
 │   │   ├── fire-day-reminder/  # Mon-Fri 9 AM CT — heads-up email with "Fire now" buttons
 │   │   ├── retry-notification/ # Replay a failed Resend send from the DLQ
 │   │   ├── send-manual-receipt/    # Fire receipt + HQ alert for MarkPaidModal wire/check payments
-│   │   └── health/             # Public GET — cron status + DLQ count + pending invoices
+│   │   ├── generate-monthly-recaps/    # Monthly cron on 1st — builds retainer-client recap drafts
+│   │   ├── send-monthly-recap/         # Bearer-auth — sends a draft/approved monthly recap to the client
+│   │   ├── health/             # Public GET — cron status + DLQ count + deploy_sha + response_ms
+│   │   └── run-pipeline-test/  # Manual ops tool (excluded from deploy-edge.sh)
 │   └── sql/
 │       └── cron-schedule.sql   # pg_cron setup (9 jobs defined; 7 active — 2 auto-push jobs deactivated 2026-04-21)
 ├── OPS.md                      # Day-to-day ops runbook
@@ -140,7 +147,7 @@ Edge function secrets live in Supabase Dashboard
 ([Settings → Functions](https://supabase.com/dashboard/project/sukcufgjptllzucbneuj/settings/functions)),
 NOT in this repo. See [OPS.md](OPS.md) for the list (18 user-set secrets + 4 Supabase auto-provided — latest add: `ENABLE_AUTO_CHARGE` kill-switch).
 
-## Status (2026-04-21 — snapshot; see [OPS.md](OPS.md) for live values)
+## Status (2026-04-22 — snapshot; see [OPS.md](OPS.md) for live values)
 
 | Phase | State | Notes |
 |---|---|---|
@@ -151,7 +158,7 @@ NOT in this repo. See [OPS.md](OPS.md) for the list (18 user-set secrets + 4 Sup
 | 3.1 Today | ✅ | Daily rounds + alerts + week tasks + buildout deliverables |
 | 3.2 Contacts/Clients/Brands | ✅ | Three-tier nested CRUD, billing-state pill with PI+Invoice checking |
 | 3.3 Projects | ✅ | Buildouts + retainers, briefing markdown preview |
-| 3.4 Schedule | ✅ | Weekly template + per-date overrides (color-coded by brand) |
+| 3.4 Schedule | ✅ | Agenda timeline v2 (2026-04-22): flexible start/end times + `kind` taxonomy (focus/event/blackout) + overlay overrides (template stays visible; blackouts hide overlap, others dim at 50%). Migration 34 replaced the rigid time_block enum. Desktop grid 8am-6pm × 7 days; mobile stacked-day accordion. |
 | 3.5 Money | ✅ | Invoices + Revenue + Expenses, "Charge via ACH" button, string-slice YTD year math |
 | 3.6 Contracts | ✅ | Editor + signing flow with typed cursive + auto-countersign + download PDF |
 | 3.7 Notifications | ✅ | Dead-letter queue UI, Retry / Dismiss, auto-polled badge in sidebar |
