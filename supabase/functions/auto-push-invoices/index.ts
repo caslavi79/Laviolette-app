@@ -205,6 +205,20 @@ Deno.serve(async (req: Request) => {
     return new Response('Unauthorized', { status: 401 })
   }
 
+  // Hard kill-switch for auto-charging. Default OFF. Even if the cron is
+  // re-activated by mistake, this flag guarantees no PIs are created.
+  // Set via: npx supabase secrets set ENABLE_AUTO_CHARGE=true --project-ref ...
+  if (Deno.env.get('ENABLE_AUTO_CHARGE') !== 'true') {
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        disabled: true,
+        reason: 'ENABLE_AUTO_CHARGE is not set to "true". Auto-charging is disabled; fire invoices manually from the Money tab.',
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   const today = todayCentral()
 
   // Load all not-yet-charged invoices with a client that has bank on file.

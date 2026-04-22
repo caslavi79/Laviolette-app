@@ -315,7 +315,7 @@ function invoiceSystemState(inv, isOverdue) {
   if (!inv.clients?.bank_info_on_file) {
     return { label: inv.status, message: 'Awaiting client bank-link completion. Cannot charge until bank_info_on_file flips true.' }
   }
-  return { label: inv.status, message: 'Ready to charge. Click "Charge via ACH" or wait for auto-push at 4:05 PM CT on the business day before the due date.' }
+  return { label: inv.status, message: 'Ready to charge. Click "Charge via ACH" to initiate an ACH debit.' }
 }
 
 function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargingId, chargeResult, regenerateBankLink, regeneratingId, regenerateResult }) {
@@ -323,10 +323,10 @@ function InvoiceRow({ inv, isExpanded, onExpand, setModal, chargeInvoice, chargi
   const isOverdue = (inv.status === 'overdue') || (inv.status === 'pending' && du !== null && du < 0)
   const sys = invoiceSystemState(inv, isOverdue)
   const color = colorForInvoiceStatus(sys.label === 'partially paid' ? 'partially_paid' : sys.label)
-  // inv.notes was historically used for operator-authored pre-charge guidance
-  // ("Auto-push will fire at 4:05 PM"). Once a PI is attached that copy is
-  // stale + anxiety-inducing. Suppress operator notes once the charge is in
-  // flight; the system-state message above carries the authoritative status.
+  // inv.notes was historically used for operator-authored pre-charge guidance.
+  // Once a PI is attached that copy is stale + anxiety-inducing. Suppress
+  // operator notes once the charge is in flight; the system-state message
+  // above carries the authoritative status.
   const hasLiveCharge = !!(inv.stripe_payment_intent_id || inv.stripe_invoice_id)
   const showNotes = inv.notes && !hasLiveCharge
   return (

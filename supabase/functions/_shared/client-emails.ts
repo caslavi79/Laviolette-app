@@ -227,7 +227,7 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
       badgeLabel = 'CONNECTED'
       badgeColor = INK_SUCCESS
       subject = `✓ Bank linked: ${d.clientName} is ready for ACH`
-      headline = `${d.clientName} completed the bank-connection flow. Next auto-push cron will charge any due invoices.`
+      headline = `${d.clientName} completed the bank-connection flow. Fire their due invoices manually from the Money tab when ready.`
       rows = [
         ['Client', d.clientName],
         ['Stripe customer', d.stripeCustomerId],
@@ -296,7 +296,7 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
       badgeLabel = 'PM MISSING'
       badgeColor = INK_FAIL
       subject = `⚠ Bank attached but default-PM not set: ${d.clientName}`
-      headline = `${d.clientName} completed bank setup, but Stripe did not return a usable us_bank_account payment method. Auto-charge will fail until resolved.`
+      headline = `${d.clientName} completed bank setup, but Stripe did not return a usable us_bank_account payment method. Charging will fail until resolved.`
       rows = [
         ['Client', d.clientName],
         ['Stripe customer', d.stripeCustomerId],
@@ -307,7 +307,7 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
       badgeLabel = 'ACTION NEEDED'
       badgeColor = INK_FAIL
       const n = d.blocked.length
-      subject = `⚠ Auto-push blocked: ${n} invoice${n === 1 ? '' : 's'} could not charge (${d.date})`
+      subject = `⚠ ${n} invoice${n === 1 ? '' : 's'} blocked — no bank on file (${d.date})`
       headline = `${n} invoice${n === 1 ? ' is' : 's are'} eligible to fire today but the client${n === 1 ? ' has' : 's have'} no bank on file. Case action needed.`
       rows = [
         ...d.blocked.map((b) => [b.invoice_number + ' · ' + b.client_name, fmtMoney(b.amount) + ' · ' + b.reason] as [string, string]),
@@ -319,8 +319,8 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
       badgeLabel = 'ERRORS'
       badgeColor = INK_FAIL
       const n = d.errors.length
-      subject = `⚠ Auto-push had ${n} error${n === 1 ? '' : 's'} (${d.date})`
-      headline = `Auto-push run completed but ${n} invoice${n === 1 ? '' : 's'} failed. Check Notifications + Stripe Dashboard.`
+      subject = `⚠ Charge cron had ${n} error${n === 1 ? '' : 's'} (${d.date})`
+      headline = `Charge cron completed but ${n} invoice${n === 1 ? '' : 's'} failed. Check Notifications + Stripe Dashboard.`
       rows = [
         ...d.errors.map((e) => [e.invoice_number, e.error.slice(0, 120)] as [string, string]),
         ['Next step', 'Review errors in Supabase function logs. Re-run once root cause fixed.'],
@@ -331,7 +331,7 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
       badgeLabel = 'BANK DISCONNECTED'
       badgeColor = INK_FAIL
       subject = `⚠ Bank disconnected: ${d.clientName}`
-      headline = `${d.clientName}'s bank on file is no longer usable. Auto-push will skip their invoices until they reconnect.`
+      headline = `${d.clientName}'s bank on file is no longer usable. Charging will be blocked until they reconnect.`
       rows = [
         ['Client', d.clientName],
         ['Stripe customer', d.stripeCustomerId],
@@ -352,7 +352,7 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
         ? `🔔 Fire day: ${nEligible} charge${nEligible === 1 ? '' : 's'} ready + ${nBlocked} blocked — ${d.date}`
         : `🔔 Fire day: ${nEligible} charge${nEligible === 1 ? '' : 's'} ready — ${fmtMoney(totalAmount)} total`
       headline = nEligible > 0
-        ? `${nEligible} invoice${nEligible === 1 ? ' is' : 's are'} eligible to fire today (${fmtMoney(totalAmount)} total). Click "Fire now" on each — or let auto-push handle it at 4:05 PM CT as a safety net.`
+        ? `${nEligible} invoice${nEligible === 1 ? ' is' : 's are'} eligible to fire today (${fmtMoney(totalAmount)} total). Click "Fire now" on each to initiate the ACH debit.`
         : `No invoices eligible to fire today — only blocked invoices need attention.`
       // Build the eligible-invoice table with per-row Fire-now button
       const eligibleRowsHtml = d.eligible.map((inv) => `
@@ -398,9 +398,9 @@ export function buildInternalNotification(d: InternalNotification): { subject: s
   <table style="width: 100%; border-collapse: collapse; background: rgba(212,117,97,0.04); border: 1px solid ${INK_FAIL}; font-size: 13px;">
     ${blockedRowsHtml}
   </table>
-  <p style="margin: 12px 0 0; font-size: 12px; color: rgba(244,240,232,0.55); line-height: 1.5;">Send bank-link or resolve before 4:05 PM CT. Auto-push will skip these.</p>` : ''}
+  <p style="margin: 12px 0 0; font-size: 12px; color: rgba(244,240,232,0.55); line-height: 1.5;">Send a bank-link or resolve before charging. These invoices cannot be fired until bank on file is restored.</p>` : ''}
   <p style="margin: 28px 0 0; font-size: 12px; color: rgba(244,240,232,0.55); line-height: 1.5;">
-    Auto-push fires at 4:05 PM CT (with retry at 5:05 PM). Any invoice you don't fire manually will be charged automatically — this reminder is the safety belt, not a requirement.
+    Charges fire only when you click "Fire now" on an invoice. Nothing is charged automatically.
   </p>
   <p style="margin: 24px 0 0; font-size: 12px;">
     <a href="${esc(d.appUrl)}/money" style="color: ${INK_ACCENT}; text-decoration: none;">Open Money tab →</a>
