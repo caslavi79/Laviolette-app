@@ -997,15 +997,8 @@ function fmtMonthName(yyyymm) {
 function ActivityTab({ project, onLogWork, refreshKey }) {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
-  const [serviceFilter, setServiceFilter] = useState('all')
   const [expandedId, setExpandedId] = useState(null)
   const [err, setErr] = useState('')
-
-  const services = useMemo(
-    () => [...(project.retainer_services || [])].sort((a, b) => a.number - b.number),
-    [project.retainer_services]
-  )
-  const activeServices = services.filter((s) => s.active)
   const brandId = project.brands?.id
 
   useEffect(() => {
@@ -1014,41 +1007,32 @@ function ActivityTab({ project, onLogWork, refreshKey }) {
     ;(async () => {
       setLoading(true)
       setErr('')
-      const serviceIds = services.map((s) => s.id)
-      let q = supabase
+      // Flat query — brand-scoped, chronological. Session/service grouping
+      // removed per Case's 2026-04-22 feedback ("logs are just logs, with
+      // notes thats it no tabs to select"). Each row renders as one entry;
+      // freeform notes are the primary content.
+      const { data, error } = await supabase
         .from('work_log')
-        .select('id, title, notes, link_url, performed_at, service_id, count, started_at, ended_at, session_id, retainer_services (name)')
+        .select('id, title, notes, link_url, performed_at, count, started_at, ended_at, session_id')
         .eq('brand_id', brandId)
         .order('performed_at', { ascending: false })
-      if (serviceIds.length > 0) {
-        q = q.or(`service_id.in.(${serviceIds.join(',')}),service_id.is.null`)
-      } else {
-        q = q.is('service_id', null)
-      }
-      const { data, error } = await q
       if (cancelled) return
       if (error) setErr(error.message)
       setEntries(data || [])
       setLoading(false)
     })()
     return () => { cancelled = true }
-  }, [brandId, services, refreshKey])
-
-  const filtered = useMemo(() => {
-    if (serviceFilter === 'all') return entries
-    if (serviceFilter === 'general') return entries.filter((e) => !e.service_id)
-    return entries.filter((e) => e.service_id === serviceFilter)
-  }, [entries, serviceFilter])
+  }, [brandId, refreshKey])
 
   const months = useMemo(() => {
     const map = new Map()
-    for (const e of filtered) {
+    for (const e of entries) {
       const key = String(e.performed_at).slice(0, 7)
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(e)
     }
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-  }, [filtered])
+  }, [entries])
 
   const hasEntries = entries.length > 0
 
@@ -1056,127 +1040,83 @@ function ActivityTab({ project, onLogWork, refreshKey }) {
     <section className="activity-tab">
       <div className="detail-section-header" style={{ alignItems: 'center', gap: 10 }}>
         <button className="btn btn-primary" onClick={onLogWork}>+ Log work</button>
-        {hasEntries && (
-          <div className="toolbar-filters" style={{ marginLeft: 'auto' }}>
-            <button
-              className={`filter-pill ${serviceFilter === 'all' ? 'active' : ''}`}
-              aria-pressed={serviceFilter === 'all'}
-              onClick={() => setServiceFilter('all')}
-            >all</button>
-            {activeServices.map((s) => (
-              <button
-                key={s.id}
-                className={`filter-pill ${serviceFilter === s.id ? 'active' : ''}`}
-                aria-pressed={serviceFilter === s.id}
-                onClick={() => setServiceFilter(s.id)}
-                title={s.name}
-              >{s.name}</button>
-            ))}
-            <button
-              className={`filter-pill ${serviceFilter === 'general' ? 'active' : ''}`}
-              aria-pressed={serviceFilter === 'general'}
-              onClick={() => setServiceFilter('general')}
-            >general</button>
-          </div>
-        )}
       </div>
 
       {err && <div className="form-error">{err}</div>}
 
       {loading ? (
         <div className="loading" style={{ minHeight: 120 }}>Loading…</div>
-      ) : filtered.length === 0 ? (
+      ) : !hasEntries ? (
         <div className="empty-state" style={{ padding: 16 }}>
-          {hasEntries ? (
-            <p>No entries for this filter.</p>
-          ) : (
-            <>
-              <p>No activity logged yet.</p>
-              <button className="cta-link" onClick={onLogWork}>Log your first entry →</button>
-            </>
-          )}
+          <p>No activity logged yet.</p>
+          <button className="cta-link" onClick={onLogWork}>Log your first entry →</button>
         </div>
       ) : (
-        months.map(([monthKey, rows]) => {
-          const byService = new Map()
-          for (const r of rows) {
-            const k = r.service_id || '__general__'
-            if (!byService.has(k)) {
-              byService.set(k, {
-                name: r.retainer_services?.name || 'General',
-                entries: [],
-              })
-            }
-            byService.get(k).entries.push(r)
-          }
-          return (
-            <div key={monthKey} className="activity-month">
-              <h3 className="activity-month-header">{fmtMonthName(monthKey)}</h3>
-              {[...byService.entries()].map(([svcKey, { name, entries: svcEntries }]) => (
-                <div key={svcKey} className="activity-service-group">
-                  <div className="activity-service-label eyebrow">{name}</div>
-                  <ul className="activity-list">
-                    {svcEntries.map((e) => {
-                      const open = expandedId === e.id
-                      const firstLine = (e.notes || '').split('\n')[0]
-                      return (
-                        <li key={e.id} className={`activity-entry ${open ? 'open' : ''}`}>
-                          <button
-                            type="button"
-                            className="activity-entry-head"
-                            onClick={() => setExpandedId(open ? null : e.id)}
-                            aria-expanded={open}
-                          >
-                            <span className="activity-entry-title">
-                              {e.title}
-                              {e.count > 1 && (
-                                <span className="activity-entry-count" aria-label={`count ${e.count}`}>
-                                  {' '}×{e.count}
-                                </span>
-                              )}
-                            </span>
-                            <span className="activity-entry-meta">
-                              {e.started_at && e.ended_at ? (
-                                <>
-                                  {new Date(e.started_at).toLocaleString('en-US', {
-                                    month: 'short', day: 'numeric',
-                                  })}
-                                  {', '}
-                                  {new Date(e.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                  {' – '}
-                                  {new Date(e.ended_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                </>
-                              ) : (
-                                new Date(e.performed_at).toLocaleString('en-US', {
-                                  month: 'short', day: 'numeric',
-                                  hour: 'numeric', minute: '2-digit',
-                                })
-                              )}
-                              {e.link_url && <span className="activity-entry-link-icon" aria-label="has link">↗</span>}
-                            </span>
-                          </button>
-                          {firstLine && !open && (
-                            <div className="activity-entry-preview">{firstLine}</div>
-                          )}
-                          {open && (
-                            <div className="activity-entry-body">
-                              {e.notes && <pre className="activity-entry-notes">{e.notes}</pre>}
-                              {e.link_url && (
-                                <a href={e.link_url} target="_blank" rel="noreferrer" className="activity-entry-link">
-                                  {e.link_url}
-                                </a>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )
-        })
+        months.map(([monthKey, rows]) => (
+          <div key={monthKey} className="activity-month">
+            <h3 className="activity-month-header">{fmtMonthName(monthKey)}</h3>
+            <ul className="activity-list">
+              {rows.map((e) => {
+                const open = expandedId === e.id
+                // title === first line of notes (v2.1 derives it on save)
+                // so the head already shows the preview. Only render the
+                // expanded body when there's "more" beyond what the head
+                // already displays — a multi-line note, a link, or the
+                // rare case where title diverges from notes (legacy rows
+                // pre-v2.1). Otherwise collapsing into head is enough.
+                const notesStr = (e.notes || '').trim()
+                const firstLine = notesStr.split('\n')[0]
+                const hasMoreNotes = notesStr && notesStr !== e.title && notesStr !== firstLine
+                const hasBody = hasMoreNotes || !!e.link_url
+                return (
+                  <li key={e.id} className={`activity-entry ${open ? 'open' : ''}`}>
+                    <button
+                      type="button"
+                      className="activity-entry-head"
+                      onClick={() => hasBody && setExpandedId(open ? null : e.id)}
+                      aria-expanded={open}
+                      disabled={!hasBody}
+                      style={!hasBody ? { cursor: 'default' } : undefined}
+                    >
+                      <span className="activity-entry-title">
+                        {e.title || firstLine || '(no notes)'}
+                      </span>
+                      <span className="activity-entry-meta">
+                        {e.started_at && e.ended_at ? (
+                          <>
+                            {new Date(e.started_at).toLocaleString('en-US', {
+                              month: 'short', day: 'numeric',
+                            })}
+                            {', '}
+                            {new Date(e.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {' – '}
+                            {new Date(e.ended_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          </>
+                        ) : (
+                          new Date(e.performed_at).toLocaleString('en-US', {
+                            month: 'short', day: 'numeric',
+                            hour: 'numeric', minute: '2-digit',
+                          })
+                        )}
+                        {e.link_url && <span className="activity-entry-link-icon" aria-label="has link">↗</span>}
+                      </span>
+                    </button>
+                    {open && hasBody && (
+                      <div className="activity-entry-body">
+                        {hasMoreNotes && <pre className="activity-entry-notes">{e.notes}</pre>}
+                        {e.link_url && (
+                          <a href={e.link_url} target="_blank" rel="noreferrer" className="activity-entry-link">
+                            {e.link_url}
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ))
       )}
     </section>
   )
