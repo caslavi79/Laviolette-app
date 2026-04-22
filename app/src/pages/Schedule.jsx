@@ -155,7 +155,6 @@ export default function Schedule() {
     const dateIso = toISO(day.date)
     const dayOverrides = ovrByDate.get(dateIso) || []
     const dayTemplates = tplByDow.get(day.dow) || []
-    const blackouts = dayOverrides.filter((o) => o.kind === 'blackout')
     const layers = dayOverrides.filter((o) => o.kind !== 'blackout')
 
     const out = []
@@ -163,11 +162,16 @@ export default function Schedule() {
     for (const t of dayTemplates) {
       const tStart = parseTime(t.start_time).totalMin
       const tEnd = parseTime(t.end_time).totalMin
-      // Hide template if any blackout fully covers its window.
-      const fullyCovered = blackouts.some((b) => {
-        const bStart = parseTime(b.start_time).totalMin
-        const bEnd = parseTime(b.end_time).totalMin
-        return bStart <= tStart && bEnd >= tEnd
+      // Hide template if ANY override fully covers its window. Blackouts
+      // hide-on-full per day-off semantics; focus/event overrides that
+      // cover the same range replace the plan for that specific time, so
+      // we hide the template too — otherwise both blocks render at the
+      // identical absolute rectangle and the "RECURRING" + "event" badges
+      // stack on top of each other (2026-04-22 fix).
+      const fullyCovered = dayOverrides.some((o) => {
+        const oStart = parseTime(o.start_time).totalMin
+        const oEnd = parseTime(o.end_time).totalMin
+        return oStart <= tStart && oEnd >= tEnd
       })
       if (fullyCovered) continue
       // Dim template if any non-blackout override partially overlaps.
@@ -183,9 +187,15 @@ export default function Schedule() {
       out.push({ kind: o.kind || 'event', data: o })
     }
 
-    out.sort((a, b) =>
-      parseTime(a.data.start_time).totalMin - parseTime(b.data.start_time).totalMin
-    )
+    // Render order = DOM order for absolute-positioned siblings without
+    // z-index. Put templates first so overrides land on top visually on
+    // partial overlap. Within each group, sort by start_time.
+    out.sort((a, b) => {
+      const aTpl = a.kind === 'template'
+      const bTpl = b.kind === 'template'
+      if (aTpl !== bTpl) return aTpl ? -1 : 1
+      return parseTime(a.data.start_time).totalMin - parseTime(b.data.start_time).totalMin
+    })
     return out
   }
 
