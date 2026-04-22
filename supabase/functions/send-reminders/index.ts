@@ -71,11 +71,17 @@ Deno.serve(async (req: Request) => {
 
   const lines: Line[] = []
 
-  // Overdue invoices
+  // Overdue invoices. Both arms require PI-null + invoice-null — an
+  // in-flight ACH is "processing" in the UI (c444014) and should not
+  // surface in the Case-facing OVERDUE digest. The primary branch
+  // guarded the `pending` arm but left `status.eq.overdue` catching
+  // any row someone else flipped to overdue; audit 2026-04-22 A4
+  // added defensive symmetry so even if check-overdue ever regresses,
+  // this digest stays quiet on processing invoices.
   const { data: overdue } = await supabase
     .from('invoices')
     .select('id, invoice_number, description, total, due_date, status, clients(name, legal_name)')
-    .or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today},stripe_payment_intent_id.is.null,stripe_invoice_id.is.null)`)
+    .or(`and(status.eq.overdue,stripe_payment_intent_id.is.null,stripe_invoice_id.is.null),and(status.eq.pending,due_date.lt.${today},stripe_payment_intent_id.is.null,stripe_invoice_id.is.null)`)
   for (const inv of overdue || []) {
     const client = (inv as any).clients?.legal_name || (inv as any).clients?.name || 'Unknown'
     const du = Math.round((Date.parse(today) - Date.parse(inv.due_date)) / 86_400_000)
@@ -87,13 +93,17 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Due soon
+  // Due soon — PI-null + invoice-null. Once a charge is in flight, the
+  // "DUE SOON" nudge becomes duplicative action pressure; Today.jsx
+  // mirrors this skip on line 225. Audit 2026-04-22 A4.
   const { data: dueSoon } = await supabase
     .from('invoices')
     .select('id, invoice_number, total, due_date, status, clients(name, legal_name)')
     .eq('status', 'pending')
     .gte('due_date', today)
     .lte('due_date', in3)
+    .is('stripe_payment_intent_id', null)
+    .is('stripe_invoice_id', null)
   for (const inv of dueSoon || []) {
     const client = (inv as any).clients?.legal_name || (inv as any).clients?.name || 'Unknown'
     lines.push({
@@ -104,11 +114,16 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Contracts expiring
+  // Contracts expiring — retainer-only. Buildout contracts use end_date
+  // as a delivery target, not a renewal deadline, so treating them as
+  // "expiring" fires false "Contract expires in 13d" emails for
+  // freshly-signed buildouts (Today.jsx:255 already has this gate).
+  // Audit 2026-04-22 A4.
   const { data: contracts } = await supabase
     .from('contracts')
-    .select('id, name, end_date, renewal_notice_days, status')
+    .select('id, name, end_date, renewal_notice_days, status, type')
     .in('status', ['signed', 'active'])
+    .eq('type', 'retainer')
     .not('end_date', 'is', null)
     .lte('end_date', in30)
   for (const c of contracts || []) {

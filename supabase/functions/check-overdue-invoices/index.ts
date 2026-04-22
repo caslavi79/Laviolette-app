@@ -44,11 +44,21 @@ Deno.serve(async (req: Request) => {
   // invoices shouldn't flip to 'overdue' — the work ended; flagging
   // them overdue would imply Case is chasing payment on engagements
   // that never ran to term. They'd need a void instead.
+  //
+  // PI-null + invoice-null gate: an invoice with a `stripe_payment_intent_id`
+  // (or legacy `stripe_invoice_id`) attached is an ACH in flight — status
+  // PENDING + PI renders as "processing" in the UI (c444014). Flipping those
+  // to overdue mid-clearing produces a false "PAST DUE" cascade (Contacts
+  // billing pill, send-reminders OVERDUE digest, day-5 late-fee trigger).
+  // Audit 2026-04-22 A4 — was the active threat against Nicole LV-005 +
+  // Viktoriia LV-006 pre-fix.
   const { data: overdueCandidates, error: e0 } = await admin
     .from('invoices')
     .select('id, projects(status)')
     .in('status', ['pending', 'sent'])
     .lt('due_date', today)
+    .is('stripe_payment_intent_id', null)
+    .is('stripe_invoice_id', null)
   const overdueIds = (overdueCandidates || [])
     .filter((r: any) => !['cancelled','complete'].includes(r.projects?.status))
     .map((r: any) => r.id)
@@ -61,13 +71,18 @@ Deno.serve(async (req: Request) => {
         .in('id', overdueIds)
         .select('id')
 
-  // Same guard for the 5-business-day late-fee flag.
+  // Same guard for the 5-business-day late-fee flag, plus the same
+  // PI-null gate — an invoice marked `overdue` with a live PI is an
+  // anomaly (webhook should have cleared it), but if the state exists
+  // we don't want to charge late fees on top of an in-flight debit.
   const { data: feeCandidates, error: e0b } = await admin
     .from('invoices')
     .select('id, projects(status)')
     .eq('status', 'overdue')
     .eq('late_fee_applied', false)
     .lt('due_date', fiveBD)
+    .is('stripe_payment_intent_id', null)
+    .is('stripe_invoice_id', null)
   const feeIds = (feeCandidates || [])
     .filter((r: any) => !['cancelled','complete'].includes(r.projects?.status))
     .map((r: any) => r.id)
