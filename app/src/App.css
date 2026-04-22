@@ -3013,6 +3013,197 @@ body.modal-open { overflow: hidden; }
   color: var(--text-lo);
   flex-shrink: 0;
 }
+/* Tally "· N sessions" subtitle — muted so the row count stays the
+ * primary signal but sessions register as a secondary fact. */
+.log-work-tally-sub {
+  color: var(--text-lo);
+  font-weight: 400;
+  letter-spacing: 1.5px;
+}
+/* Count badge used in both the Today session/flat lists and the
+ * ActivityTab service entries. */
+.log-work-count {
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--copper);
+  padding: 1px 6px;
+  border: 1px solid var(--copper-dim);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Session-group rendering in the Today expand list. Each session
+ * has a header row (time window + brand) and an indented task list
+ * underneath. Legacy single-event rows continue to use .log-work-item. */
+.log-work-session {
+  margin: 0;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(244,240,232,0.06);
+}
+.log-work-session:last-child { border-bottom: 0; }
+.log-work-session-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.log-work-session-window {
+  color: var(--copper);
+  font-family: var(--label);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.log-work-session-brand {
+  color: var(--ivory);
+  font-weight: 500;
+  flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-work-session-link {
+  color: var(--copper);
+  text-decoration: none;
+  font-size: 14px;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.log-work-session-link:hover { color: var(--ivory); }
+.log-work-session-tasks {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 10px 0 28px;   /* indent under the swatch */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.log-work-session-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+/* LogWorkModal v2 — session window + multi-task checkbox list */
+.log-work-window-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.log-work-window-row input[type="datetime-local"] {
+  flex: 1;
+  min-width: 180px;
+}
+.log-work-window-sep {
+  color: var(--text-lo);
+  font-family: var(--label);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.log-work-presets {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.btn-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-family: var(--label);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-md);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-chip:hover {
+  background: var(--copper-soft);
+  color: var(--copper);
+  border-color: var(--copper-dim);
+}
+
+.log-work-task-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.log-work-task {
+  border-bottom: 1px solid rgba(244,240,232,0.06);
+  padding: 8px 12px;
+  transition: background 0.15s;
+}
+.log-work-task:last-child { border-bottom: 0; }
+.log-work-task--checked {
+  background: var(--copper-soft);
+}
+.log-work-task--general .log-work-task-name {
+  color: var(--text-lo);
+  font-style: italic;
+}
+.log-work-task-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.log-work-task-head input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--copper);
+  cursor: pointer;
+}
+.log-work-task-name {
+  color: var(--ivory);
+  font-size: 14px;
+}
+.log-work-task--checked .log-work-task-name {
+  color: var(--copper);
+  font-weight: 500;
+}
+.log-work-task-fields {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 26px;   /* align under the checkbox text */
+}
+.log-work-task-title {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 6px 10px;
+  color: var(--ivory);
+  font-size: 13px;
+}
+.log-work-task-count {
+  width: 72px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 6px 10px;
+  color: var(--ivory);
+  font-size: 13px;
+  text-align: center;
+}
+.log-work-task-title:focus,
+.log-work-task-count:focus {
+  outline: 1px solid var(--copper);
+  border-color: var(--copper);
+}
 
 /* Projects — Activity tab */
 .activity-tab { margin-top: 12px; }

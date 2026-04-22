@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from '../Modal'
-import { TextField, TextareaField, SelectField } from '../Field'
+import { TextField } from '../Field'
 import { supabase } from '../../lib/supabase'
 
 /* Validate + normalize a link input. Strict: only http/https URLs are
@@ -26,7 +26,7 @@ function sanitizeUrl(raw) {
   }
 }
 
-/* performed_at ↔ <input type="datetime-local"> bridging.
+/* timestamptz ↔ <input type="datetime-local"> bridging.
  * datetime-local has no timezone — we treat it as the user's local time. */
 function toLocalInput(iso) {
   if (!iso) return ''
@@ -41,6 +41,37 @@ function fromLocalInput(local) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+/* Default session window: starts 1 hour ago (rounded down to the nearest
+ * 15 minutes), ends now. Matches the common case of "I just finished a
+ * chunk of work and want to log it." */
+function defaultSessionWindow() {
+  const end = new Date()
+  const start = new Date(end.getTime() - 60 * 60_000)
+  // Round start down to nearest 15min for cleaner labels.
+  const m = start.getMinutes()
+  start.setMinutes(m - (m % 15), 0, 0)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+/* Preset factories — each returns {start, end} in ISO. */
+function presetJustNow() {
+  return defaultSessionWindow()  // last hour ending now
+}
+function presetThisMorning() {
+  const d = new Date()
+  const start = new Date(d); start.setHours(9, 0, 0, 0)
+  const end = new Date(d); end.setHours(12, 0, 0, 0)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+function presetThisAfternoon() {
+  const d = new Date()
+  const start = new Date(d); start.setHours(13, 0, 0, 0)
+  const end = new Date(d); end.setHours(17, 0, 0, 0)
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+const GENERAL_SENTINEL = '__general__'  // in-UI key for the "— General —" task row (service_id=null)
+
 export default function LogWorkModal({
   defaultBrandId,
   defaultServiceId,
@@ -50,18 +81,19 @@ export default function LogWorkModal({
   const [brands, setBrands] = useState([])       // [{ id, name, color, services: [...] }]
   const [loadingBrands, setLoadingBrands] = useState(true)
   const [brandId, setBrandId] = useState(defaultBrandId || '')
-  const [serviceId, setServiceId] = useState(defaultServiceId || '')
-  const [title, setTitle] = useState('')
-  const [count, setCount] = useState(1)
+  // Session window (ISO strings)
+  const initial = defaultSessionWindow()
+  const [startedAt, setStartedAt] = useState(initial.start)
+  const [endedAt, setEndedAt] = useState(initial.end)
+  // Task selection — keyed by service_id OR GENERAL_SENTINEL.
+  // Each entry: { checked, title, count }. title starts empty → falls back to service name on submit.
+  const [taskStates, setTaskStates] = useState({})
   const [notes, setNotes] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
-  const [performedAt, setPerformedAt] = useState(new Date().toISOString())
-  const [showDetails, setShowDetails] = useState(false)
-  const [showTimePicker, setShowTimePicker] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState('')        // "Save & log another" confirmation
-  const titleInputRef = useRef(null)
+  const [toast, setToast] = useState('')
+  const notesInputRef = useRef(null)
 
   // Load brands + their retainer services, and pick the default brand.
   useEffect(() => {
@@ -73,9 +105,7 @@ export default function LogWorkModal({
           .from('brands')
           // Left-join on projects so brands with no project yet still
           // appear in the picker. work_log.brand_id references brands
-          // directly — no project required. Audit 2026-04-22 A8 LOW
-          // (was `projects!inner` which excluded brands without a
-          // project from the picker entirely).
+          // directly — no project required.
           .select(`
             id, name, color,
             projects (
@@ -118,52 +148,147 @@ export default function LogWorkModal({
 
   const selectedBrand = useMemo(() => brands.find((b) => b.id === brandId) || null, [brands, brandId])
 
-  // Reset service if the current one doesn't belong to the newly selected brand.
-  useEffect(() => {
-    if (!selectedBrand) return
-    if (serviceId && !selectedBrand.services.some((s) => s.id === serviceId)) {
-      setServiceId('')
-    }
-  }, [selectedBrand, serviceId])
+  // Build the task list: services for the brand + a General sentinel.
+  const taskList = useMemo(() => {
+    if (!selectedBrand) return []
+    const rows = (selectedBrand.services || []).map((s) => ({
+      key: s.id,
+      service_id: s.id,
+      serviceName: s.name,
+      isGeneral: false,
+    }))
+    rows.push({
+      key: GENERAL_SENTINEL,
+      service_id: null,
+      serviceName: '— General —',
+      isGeneral: true,
+    })
+    return rows
+  }, [selectedBrand])
 
-  // After brand+service are resolved, focus the title input (fast mobile entry).
+  // Reset task state when brand changes (services are brand-scoped).
+  // Pre-check defaultServiceId if provided and still valid for this brand.
   useEffect(() => {
-    if (!loadingBrands && brandId && titleInputRef.current) {
-      titleInputRef.current.focus()
+    if (!selectedBrand) { setTaskStates({}); return }
+    setTaskStates((prev) => {
+      const next = {}
+      for (const t of taskList) {
+        const prevEntry = prev[t.key]
+        // Keep existing state if we had one; otherwise start unchecked.
+        next[t.key] = prevEntry || { checked: false, title: '', count: 1 }
+      }
+      // If caller passed a defaultServiceId and we haven't yet checked it,
+      // pre-check on first arrival.
+      if (defaultServiceId && next[defaultServiceId] && !next[defaultServiceId].checked) {
+        next[defaultServiceId] = { ...next[defaultServiceId], checked: true }
+      }
+      return next
+    })
+  }, [selectedBrand, taskList, defaultServiceId])
+
+  // After brand is resolved, focus the notes textarea (first editable field in the session flow).
+  useEffect(() => {
+    if (!loadingBrands && brandId && notesInputRef.current) {
+      // Don't auto-focus on mobile — the modal opens full-screen and the
+      // focus shift scrolls the layout. Desktop only.
+      if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+        notesInputRef.current.focus({ preventScroll: true })
+      }
     }
   }, [loadingBrands, brandId])
+
+  const toggleTask = (key) => {
+    setTaskStates((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], checked: !prev[key]?.checked },
+    }))
+  }
+  const updateTaskField = (key, field, value) => {
+    setTaskStates((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], [field]: value },
+    }))
+  }
+
+  const applyPreset = (preset) => {
+    const win = preset === 'now' ? presetJustNow()
+              : preset === 'am'  ? presetThisMorning()
+              : preset === 'pm'  ? presetThisAfternoon()
+              : defaultSessionWindow()
+    setStartedAt(win.start); setEndedAt(win.end)
+  }
 
   const save = useCallback(async ({ logAnother = false } = {}) => {
     setErr('')
     if (!brandId) { setErr('Pick a brand.'); return false }
-    const t = title.trim()
-    if (!t) { setErr('Title is required.'); return false }
-    if (t.length > 200) { setErr('Title is too long (max 200 chars).'); return false }
-    const c = Math.max(1, Math.min(1000, Math.floor(Number(count) || 1)))
-    setBusy(true)
-    const payload = {
-      brand_id: brandId,
-      service_id: serviceId || null,
-      title: t,
-      count: c,
-      notes: notes.trim() || null,
-      link_url: sanitizeUrl(linkUrl),
-      performed_at: performedAt || new Date().toISOString(),
+    if (!startedAt || !endedAt) { setErr('Session window is required.'); return false }
+    const startMs = Date.parse(startedAt)
+    const endMs = Date.parse(endedAt)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) { setErr('Session window times are invalid.'); return false }
+    if (endMs < startMs) { setErr('End time is before start time.'); return false }
+    // Sanity: start no older than 30 days, end no more than 1h in the future.
+    const nowMs = Date.now()
+    if (startMs < nowMs - 30 * 86_400_000) { setErr('Start time is more than 30 days ago — pick a more recent session.'); return false }
+    if (endMs > nowMs + 3_600_000) { setErr('End time is in the future. Adjust the window.'); return false }
+
+    // Collect checked tasks. Each needs a title — fall back to service name if blank.
+    const selectedTasks = []
+    for (const t of taskList) {
+      const s = taskStates[t.key]
+      if (!s?.checked) continue
+      const title = (s.title || '').trim() || t.serviceName
+      if (!title) continue  // defensive — "— General —" has a truthy serviceName
+      if (title.length > 200) { setErr(`Task title too long (${title.slice(0, 40)}…). Max 200 chars.`); return false }
+      const count = Math.max(1, Math.min(1000, Math.floor(Number(s.count) || 1)))
+      selectedTasks.push({ service_id: t.service_id, title, count })
     }
+    if (selectedTasks.length === 0) { setErr('Pick at least one task.'); return false }
+
+    const sanitizedLink = sanitizeUrl(linkUrl)
+    const trimmedNotes = notes.trim() || null
+    if (trimmedNotes && trimmedNotes.length > 2000) { setErr('Notes too long (max 2000 chars).'); return false }
+
+    setBusy(true)
+    // Client-generated session_id groups all N rows from this submit.
+    // Batch insert is atomic (one statement) — all rows land or none do.
+    const sessionId = crypto.randomUUID()
+    const startedIso = new Date(startMs).toISOString()
+    const endedIso = new Date(endMs).toISOString()
+    const rows = selectedTasks.map((t) => ({
+      session_id: sessionId,
+      brand_id: brandId,
+      service_id: t.service_id,
+      title: t.title,
+      count: t.count,
+      notes: trimmedNotes,
+      link_url: sanitizedLink,
+      started_at: startedIso,
+      ended_at: endedIso,
+      // performed_at = started_at keeps every downstream consumer
+      // (v_work_log_monthly, recap aggregator, Today CT-boundary
+      // query, ActivityTab sort) unchanged. Sessions are invisible
+      // to them — they still see N row-granular entries per session.
+      performed_at: startedIso,
+    }))
+
     try {
-      const { data, error } = await supabase.from('work_log').insert(payload).select().single()
+      const { data, error } = await supabase.from('work_log').insert(rows).select()
       if (error) throw error
       onSaved?.(data, 'created')
       if (logAnother) {
-        // Keep brand + service; clear the rest so the next entry is fast.
-        setTitle(''); setCount(1); setNotes(''); setLinkUrl('')
-        setPerformedAt(new Date().toISOString())
-        setShowTimePicker(false)
-        setShowDetails(false)
-        setToast('Logged — add another')
-        setTimeout(() => setToast(''), 1800)
-        // Refocus the title input for the next entry.
-        setTimeout(() => titleInputRef.current?.focus(), 0)
+        // Reset for next session: keep brand, clear window (new defaults),
+        // clear tasks, clear notes + link.
+        const next = defaultSessionWindow()
+        setStartedAt(next.start); setEndedAt(next.end)
+        setTaskStates((prev) => {
+          const out = {}
+          for (const key of Object.keys(prev)) out[key] = { checked: false, title: '', count: 1 }
+          return out
+        })
+        setNotes(''); setLinkUrl('')
+        setToast(`Logged ${rows.length} task${rows.length === 1 ? '' : 's'} — add another`)
+        setTimeout(() => setToast(''), 2200)
+        setTimeout(() => notesInputRef.current?.focus({ preventScroll: true }), 0)
         setBusy(false)
         return true
       }
@@ -174,14 +299,12 @@ export default function LogWorkModal({
       setBusy(false)
       return false
     }
-  }, [brandId, serviceId, title, count, notes, linkUrl, performedAt, onClose, onSaved])
+  }, [brandId, startedAt, endedAt, taskList, taskStates, notes, linkUrl, onClose, onSaved])
 
   const handleSubmit = (e) => {
     e.preventDefault()
     save({ logAnother: false })
   }
-
-  // Cmd/Ctrl+Enter anywhere in the form → Save & log another.
   const handleKeyDown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault()
@@ -189,8 +312,7 @@ export default function LogWorkModal({
     }
   }
 
-  const brandOptions = brands.map((b) => ({ value: b.id, label: b.name }))
-  const serviceOptions = (selectedBrand?.services || []).map((s) => ({ value: s.id, label: s.name }))
+  const checkedCount = Object.values(taskStates).filter((s) => s?.checked).length
 
   return (
     <Modal onClose={onClose} title="Log work" width="medium">
@@ -219,116 +341,124 @@ export default function LogWorkModal({
               {loadingBrands && <option value="">Loading…</option>}
               {!loadingBrands && brands.length === 0 && <option value="">No brands yet</option>}
               {!loadingBrands && brands.length > 0 && !brandId && <option value="">Pick a brand…</option>}
-              {brandOptions.map((b) => (
-                <option key={b.value} value={b.value}>{b.label}</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
           </div>
         </div>
 
-        {/* Service picker — only if the brand has a retainer with active services. */}
-        {selectedBrand && selectedBrand.hasRetainer && serviceOptions.length > 0 ? (
-          <SelectField
-            id="log_service"
-            label="Service (optional)"
-            value={serviceId}
-            onChange={setServiceId}
-            options={serviceOptions}
-            placeholder="— General —"
-            span="full"
-          />
-        ) : selectedBrand && !selectedBrand.hasRetainer ? (
-          <div className="field field--span-full field-hint" style={{ fontSize: 12, color: 'var(--text-lo)' }}>
-            No retainer services on this brand — entry will log as General.
+        {/* Session window. */}
+        <div className="field field--span-full log-work-window">
+          <label>Session window</label>
+          <div className="log-work-window-row">
+            <input
+              id="log_started_at"
+              type="datetime-local"
+              aria-label="Start time"
+              value={toLocalInput(startedAt)}
+              onChange={(e) => setStartedAt(fromLocalInput(e.target.value) || startedAt)}
+            />
+            <span className="log-work-window-sep">→</span>
+            <input
+              id="log_ended_at"
+              type="datetime-local"
+              aria-label="End time"
+              value={toLocalInput(endedAt)}
+              onChange={(e) => setEndedAt(fromLocalInput(e.target.value) || endedAt)}
+            />
           </div>
-        ) : null}
+          <div className="log-work-presets">
+            <button type="button" className="btn-chip" onClick={() => applyPreset('now')}>
+              Just now · 1hr
+            </button>
+            <button type="button" className="btn-chip" onClick={() => applyPreset('am')}>
+              This morning
+            </button>
+            <button type="button" className="btn-chip" onClick={() => applyPreset('pm')}>
+              This afternoon
+            </button>
+          </div>
+        </div>
 
-        {/* Title */}
+        {/* Tasks — multi-select. */}
         <div className="field field--span-full">
-          <label htmlFor="log_title">What did you do?</label>
-          <input
-            id="log_title"
-            ref={titleInputRef}
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={200}
-            required
-            placeholder='e.g. "Responded to 3 Google reviews"'
+          <label>
+            Tasks{' '}
+            <span style={{ color: 'var(--text-lo)', fontWeight: 'normal', fontSize: 11 }}>
+              ({checkedCount} selected)
+            </span>
+          </label>
+          {taskList.length === 0 ? (
+            <div className="field-hint" style={{ fontSize: 12, color: 'var(--text-lo)' }}>
+              Loading services…
+            </div>
+          ) : (
+            <ul className="log-work-task-list">
+              {taskList.map((t) => {
+                const state = taskStates[t.key] || { checked: false, title: '', count: 1 }
+                return (
+                  <li
+                    key={t.key}
+                    className={`log-work-task${state.checked ? ' log-work-task--checked' : ''}${t.isGeneral ? ' log-work-task--general' : ''}`}
+                  >
+                    <label className="log-work-task-head">
+                      <input
+                        type="checkbox"
+                        checked={!!state.checked}
+                        onChange={() => toggleTask(t.key)}
+                      />
+                      <span className="log-work-task-name">{t.serviceName}</span>
+                    </label>
+                    {state.checked && (
+                      <div className="log-work-task-fields">
+                        <input
+                          type="text"
+                          className="log-work-task-title"
+                          placeholder={`Title (optional — defaults to "${t.serviceName}")`}
+                          maxLength={200}
+                          value={state.title}
+                          onChange={(e) => updateTaskField(t.key, 'title', e.target.value)}
+                        />
+                        <input
+                          type="number"
+                          className="log-work-task-count"
+                          aria-label="How many"
+                          min={1}
+                          max={1000}
+                          step={1}
+                          value={state.count}
+                          onChange={(e) => updateTaskField(t.key, 'count', e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* Shared notes + link (one per session). */}
+        <div className="field field--span-full">
+          <label htmlFor="log_notes">Notes (optional — shared across all tasks)</label>
+          <textarea
+            id="log_notes"
+            ref={notesInputRef}
+            rows={2}
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
           />
         </div>
-
-        {/* Details — collapsed by default. Count is the load-bearing field
-           for monthly recap aggregation; notes + link are icing. */}
-        <div className="field field--span-full">
-          {!showDetails ? (
-            <button
-              type="button"
-              className="btn btn-link"
-              style={{ padding: 0, fontSize: 12 }}
-              onClick={() => setShowDetails(true)}
-            >
-              + Count, notes, link… <span style={{ color: 'var(--text-lo)' }}>(optional)</span>
-            </button>
-          ) : (
-            <>
-              <div className="form-grid" style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-                <TextField
-                  id="log_count"
-                  type="number"
-                  label="How many?"
-                  value={count}
-                  onChange={(v) => setCount(v)}
-                  min="1"
-                  max="1000"
-                  step="1"
-                  hint='e.g. "3" if this entry covers 3 posts or 3 reviews'
-                />
-                <div />
-                <TextareaField
-                  id="log_notes"
-                  label="Notes (optional)"
-                  value={notes}
-                  onChange={setNotes}
-                  rows={2}
-                  maxLength={2000}
-                />
-                <TextField
-                  id="log_link"
-                  label="Link (optional)"
-                  value={linkUrl}
-                  onChange={setLinkUrl}
-                  placeholder="https://…"
-                  span="full"
-                />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Performed at — collapsed by default. */}
-        <div className="field field--span-full">
-          {!showTimePicker ? (
-            <button
-              type="button"
-              className="btn btn-link"
-              style={{ padding: 0, fontSize: 12 }}
-              onClick={() => setShowTimePicker(true)}
-            >
-              Set a different time… <span style={{ color: 'var(--text-lo)' }}>(defaults to now)</span>
-            </button>
-          ) : (
-            <>
-              <label htmlFor="log_performed">Performed at</label>
-              <input
-                id="log_performed"
-                type="datetime-local"
-                value={toLocalInput(performedAt)}
-                onChange={(e) => setPerformedAt(fromLocalInput(e.target.value) || new Date().toISOString())}
-              />
-            </>
-          )}
-        </div>
+        <TextField
+          id="log_link"
+          label="Link (optional — shared)"
+          value={linkUrl}
+          onChange={setLinkUrl}
+          placeholder="https://…"
+          span="full"
+        />
 
         {toast && (
           <div className="form-hint" style={{ gridColumn: '1 / -1', color: 'var(--copper)', fontSize: 12 }}>
@@ -350,7 +480,7 @@ export default function LogWorkModal({
             Save &amp; log another
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? 'Saving…' : 'Save'}
+            {busy ? 'Saving…' : `Save${checkedCount > 0 ? ` (${checkedCount} task${checkedCount === 1 ? '' : 's'})` : ''}`}
           </button>
         </div>
       </form>

@@ -1017,7 +1017,7 @@ function ActivityTab({ project, onLogWork, refreshKey }) {
       const serviceIds = services.map((s) => s.id)
       let q = supabase
         .from('work_log')
-        .select('id, title, notes, link_url, performed_at, service_id, count, retainer_services (name)')
+        .select('id, title, notes, link_url, performed_at, service_id, count, started_at, ended_at, session_id, retainer_services (name)')
         .eq('brand_id', brandId)
         .order('performed_at', { ascending: false })
       if (serviceIds.length > 0) {
@@ -1136,10 +1136,22 @@ function ActivityTab({ project, onLogWork, refreshKey }) {
                               )}
                             </span>
                             <span className="activity-entry-meta">
-                              {new Date(e.performed_at).toLocaleString('en-US', {
-                                month: 'short', day: 'numeric',
-                                hour: 'numeric', minute: '2-digit',
-                              })}
+                              {e.started_at && e.ended_at ? (
+                                <>
+                                  {new Date(e.started_at).toLocaleString('en-US', {
+                                    month: 'short', day: 'numeric',
+                                  })}
+                                  {', '}
+                                  {new Date(e.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                  {' – '}
+                                  {new Date(e.ended_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                </>
+                              ) : (
+                                new Date(e.performed_at).toLocaleString('en-US', {
+                                  month: 'short', day: 'numeric',
+                                  hour: 'numeric', minute: '2-digit',
+                                })
+                              )}
                               {e.link_url && <span className="activity-entry-link-icon" aria-label="has link">↗</span>}
                             </span>
                           </button>

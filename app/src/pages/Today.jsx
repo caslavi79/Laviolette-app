@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fmtDate, fmtMoneyShort, daysUntil, COLORS } from '../lib/format'
@@ -71,6 +71,22 @@ function todayISO() {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/* Format a session window like "9:15-11:00". Both strings are ISO
+ * timestamptz. Uses local time. If either end is missing, returns the
+ * remaining one as a single time. */
+function fmtWindowLabel(startIso, endIso) {
+  const fmt = (iso) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (!Number.isFinite(d.getTime())) return ''
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+  const s = fmt(startIso)
+  const e = fmt(endIso)
+  if (s && e) return `${s} – ${e}`
+  return s || e || ''
 }
 
 function nowDow() {
@@ -306,12 +322,15 @@ export default function Today() {
       setLastHealthCheck(recentRes.data || null)
 
       // Today's work_log entries (CT day boundary so the tally is correct
-      // regardless of browser local time).
+      // regardless of browser local time). Pull session fields so we can
+      // group multi-task sessions in the expand-list (migration 005 —
+      // 20260423000001). session_id NULL = legacy single-event row.
       const { startUtcIso, endUtcIso } = ctTodayBoundsUtcIso()
       const { data: workRows } = await supabase
         .from('work_log')
         .select(`
-          id, title, performed_at, brand_id,
+          id, title, performed_at, brand_id, count,
+          session_id, started_at, ended_at,
           brands ( id, name, color, projects ( id, type ) ),
           retainer_services ( id, name )
         `)
@@ -344,6 +363,40 @@ export default function Today() {
   useEffect(() => {
     if (todaysWork.length === 0 && workOpen) setWorkOpen(false)
   }, [todaysWork.length, workOpen])
+
+  // Group today's work_log rows into sessions (by session_id) + singles
+  // (legacy rows with session_id NULL). Each group is sorted descending
+  // by its anchor timestamp so newest work sits at the top.
+  const todaysWorkGroups = useMemo(() => {
+    const sessionMap = new Map()
+    const singles = []
+    for (const row of todaysWork) {
+      if (row.session_id) {
+        if (!sessionMap.has(row.session_id)) {
+          sessionMap.set(row.session_id, {
+            kind: 'session',
+            session_id: row.session_id,
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+            brand: row.brands,
+            tasks: [],
+            sortKey: row.started_at || row.performed_at,
+          })
+        }
+        sessionMap.get(row.session_id).tasks.push(row)
+      } else {
+        singles.push({ kind: 'single', row, sortKey: row.performed_at })
+      }
+    }
+    const merged = [...sessionMap.values(), ...singles]
+    merged.sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''))
+    return merged
+  }, [todaysWork])
+
+  const todaysSessionCount = useMemo(
+    () => new Set(todaysWork.filter((r) => r.session_id).map((r) => r.session_id)).size,
+    [todaysWork]
+  )
 
   /* Optimistically toggle a round's checked state + persist.
    * If no round row exists yet (fallback path), insert one. */
@@ -488,12 +541,48 @@ export default function Today() {
             aria-expanded={workOpen}
           >
             Logged today: {todaysWork.length} item{todaysWork.length === 1 ? '' : 's'}
+            {todaysSessionCount > 0 && todaysWork.length > todaysSessionCount && (
+              <span className="log-work-tally-sub">
+                {' '}· {todaysSessionCount} session{todaysSessionCount === 1 ? '' : 's'}
+              </span>
+            )}
             {todaysWork.length > 0 && <span className="log-work-chev">{workOpen ? '▾' : '▸'}</span>}
           </button>
         </div>
         {workOpen && todaysWork.length > 0 && (
           <ul className="log-work-list">
-            {todaysWork.map((e) => {
+            {todaysWorkGroups.map((g) => {
+              if (g.kind === 'session') {
+                const retainer = (g.brand?.projects || []).find((p) => p.type === 'retainer')
+                const href = retainer ? `/projects?selected=${retainer.id}&tab=activity` : null
+                const startLabel = fmtWindowLabel(g.started_at, g.ended_at)
+                return (
+                  <li key={`s:${g.session_id}`} className="log-work-session">
+                    <div className="log-work-session-head">
+                      <span className="log-work-swatch" style={{ background: g.brand?.color || 'var(--border)' }} />
+                      <span className="log-work-session-window">{startLabel}</span>
+                      <span className="log-work-session-brand">{g.brand?.name || '—'}</span>
+                      {href && (
+                        <Link to={href} className="log-work-session-link" title="Open Activity">↗</Link>
+                      )}
+                    </div>
+                    <ul className="log-work-session-tasks">
+                      {g.tasks.map((t) => {
+                        const svcName = t.retainer_services?.name || 'General'
+                        const countBadge = t.count > 1 ? <span className="log-work-count">×{t.count}</span> : null
+                        return (
+                          <li key={t.id} className="log-work-session-task">
+                            <span className="log-work-title">{t.title}</span>
+                            {countBadge}
+                            <span className="log-work-meta">{svcName}</span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </li>
+                )
+              }
+              const e = g.row
               const retainer = (e.brands?.projects || []).find((p) => p.type === 'retainer')
               const href = retainer ? `/projects?selected=${retainer.id}&tab=activity` : null
               const svcName = e.retainer_services?.name || 'General'
@@ -501,6 +590,7 @@ export default function Today() {
                 <>
                   <span className="log-work-swatch" style={{ background: e.brands?.color || 'var(--border)' }} />
                   <span className="log-work-title">{e.title}</span>
+                  {e.count > 1 && <span className="log-work-count">×{e.count}</span>}
                   <span className="log-work-meta">{e.brands?.name} · {svcName}</span>
                 </>
               )
