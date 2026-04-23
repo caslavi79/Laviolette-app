@@ -35,6 +35,14 @@ const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') || ''
 const STRIPE_SUCCESS_URL = Deno.env.get('STRIPE_SUCCESS_URL') || 'https://app.laviolette.io/setup-success'
 const STRIPE_CANCEL_URL = Deno.env.get('STRIPE_CANCEL_URL') || 'https://app.laviolette.io/setup-cancel'
 
+// Cross-function fetch targets (hoisted from inline per-loop reads). Both
+// branches of the post-sign send-invoice fan-out use these. REMINDERS_SECRET
+// must be set as a Supabase secret; empty-string fallback would only match an
+// empty-string callee env (fragile, but keeps Deno from throwing at module load
+// during local smoke tests without the full env).
+const FUNC_BASE = `${SUPABASE_URL}/functions/v1`
+const REMINDERS_SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+
 const ALLOWED_ORIGINS = [
   'https://app.laviolette.io',
   'https://laviolette.io',
@@ -536,9 +544,10 @@ Deno.serve(async (req: Request) => {
           }
           // Fire send-invoice fire-and-forget. send-invoice is idempotent via
           // sent_date and persists its own DLQ entries on Resend failure, so
-          // errors here never block the sign response.
-          const FUNC_BASE = `${SUPABASE_URL}/functions/v1`
-          const REMINDERS_SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+          // HTTP-level errors here never block the sign response. BUT pre-HTTP
+          // failures (DNS, auth, Deno runtime) bypass the callee's DLQ — so
+          // we persist our own DLQ row here as a safety net (audit 2026-04-23
+          // M2). Without this the invoice sits with sent_date=null silently.
           fetch(`${FUNC_BASE}/send-invoice?key=${encodeURIComponent(REMINDERS_SECRET)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -550,8 +559,21 @@ Deno.serve(async (req: Request) => {
             } else {
               console.log(`[contract-sign:unified] send-invoice fired for ${newInv.invoice_number}`)
             }
-          }).catch((e) => {
-            console.error(`[contract-sign:unified] send-invoice fetch failed: ${(e as Error).message}`)
+          }).catch(async (e) => {
+            const msg = (e as Error).message
+            console.error(`[contract-sign:unified] send-invoice fetch failed: ${msg}`)
+            try {
+              await supabase.from('notification_failures').insert({
+                kind: 'internal',
+                context: `contract-sign:unified:send-invoice-dispatch-failure:${newInv.id}`,
+                subject: `⚠ send-invoice dispatch failed (unified): ${newInv.invoice_number}`,
+                to_email: CASE_NOTIFY,
+                error: msg.slice(0, 500),
+                payload: { invoice_id: newInv.id, invoice_number: newInv.invoice_number, branch: 'unified', error: msg.slice(0, 500) },
+              })
+            } catch (persistErr) {
+              console.error(`[contract-sign:unified] DLQ persist for dispatch failure itself failed: ${(persistErr as Error).message}`)
+            }
           })
           return { ok: true, invoice_id: newInv.id, invoice_number: newInv.invoice_number, bank_link_url: session.url }
         }
@@ -605,8 +627,7 @@ Deno.serve(async (req: Request) => {
         .eq('status', 'pending')
         .is('sent_date', null)
       if (pendingInvoices && pendingInvoices.length > 0) {
-        const FUNC_BASE = `${SUPABASE_URL}/functions/v1`
-        const REMINDERS_SECRET = Deno.env.get('REMINDERS_SECRET') || ''
+        // Module-scope FUNC_BASE + REMINDERS_SECRET (hoisted 2026-04-23).
         for (const inv of pendingInvoices) {
           fetch(`${FUNC_BASE}/send-invoice?key=${encodeURIComponent(REMINDERS_SECRET)}`, {
             method: 'POST',
@@ -619,8 +640,22 @@ Deno.serve(async (req: Request) => {
             } else {
               console.log(`[contract-sign] send-invoice fired for ${inv.invoice_number}`)
             }
-          }).catch((e) => {
-            console.error(`[contract-sign] send-invoice fetch failed for ${inv.invoice_number}: ${(e as Error).message}`)
+          }).catch(async (e) => {
+            // Pre-HTTP failure — callee's DLQ doesn't catch this (audit 2026-04-23 M2).
+            const msg = (e as Error).message
+            console.error(`[contract-sign] send-invoice fetch failed for ${inv.invoice_number}: ${msg}`)
+            try {
+              await supabase.from('notification_failures').insert({
+                kind: 'internal',
+                context: `contract-sign:send-invoice-dispatch-failure:${inv.id}`,
+                subject: `⚠ send-invoice dispatch failed: ${inv.invoice_number}`,
+                to_email: CASE_NOTIFY,
+                error: msg.slice(0, 500),
+                payload: { invoice_id: inv.id, invoice_number: inv.invoice_number, branch: 'pending-loop', error: msg.slice(0, 500) },
+              })
+            } catch (persistErr) {
+              console.error(`[contract-sign] DLQ persist for dispatch failure itself failed: ${(persistErr as Error).message}`)
+            }
           })
         }
       }

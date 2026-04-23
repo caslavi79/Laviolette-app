@@ -52,10 +52,13 @@ export default function MarkPaidModal({ invoice, onClose, onSaved }) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({ invoice_id: invoice.id }),
-            }).catch((e) => { if (import.meta.env.DEV) console.error('manual-receipt fire-and-forget failed:', e) })
+            }).catch((e) => { console.error('manual-receipt fire-and-forget failed:', e) })
           }
         } catch (sendErr) {
-          if (import.meta.env.DEV) console.error('mark-paid receipt dispatch failed:', sendErr)
+          // Log in prod too — silent failure in prod = invisible missed receipt.
+          // send-manual-receipt's own DLQ catches Resend-level failures; this
+          // branch only fires on pre-HTTP errors (auth, runtime, DNS).
+          console.error('mark-paid receipt dispatch failed:', sendErr)
         }
       }
       onSaved(data, 'updated')

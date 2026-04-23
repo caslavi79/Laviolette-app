@@ -360,7 +360,7 @@ Endpoint `we_1TMvVWRzgnRnD0DtDCBU6iTE`, signed with `STRIPE_WEBHOOK_SECRET`
 | `setup_intent.succeeded` | Same as above (double-safety if checkout.session.completed didn't include PM). |
 | `setup_intent.setup_failed` | Log + fire HQ alert ("⚠ Setup failed") with Stripe error code/message. |
 | `checkout.session.expired` | For setup-mode sessions: fire HQ alert ("⏱ Abandoned") so Case knows to re-send. |
-| `mandate.updated` | If status=inactive/pending (client revoked ACH auth): flip `bank_info_on_file=false` on client + fire HQ alert ("⚠ Bank disconnected"). |
+| `mandate.updated` | If status=inactive ONLY (narrowed 2026-04-22 from inactive/pending in commit `05c3ba8` — `pending` is Stripe's normal post-link state, not a revocation): flip `bank_info_on_file=false` on client + fire HQ alert ("⚠ Bank disconnected"). |
 | `payment_method.detached` | If PM was bank: check remaining us_bank_account PMs on customer. If any, set default to newest. Otherwise flip `bank_info_on_file=false` + fire HQ alert. |
 | `invoice.paid` (LEGACY) | Only for in-flight Stripe Invoices from pre-PI migration. Same mark-paid logic. |
 | `invoice.payment_failed` (LEGACY) | Same. |

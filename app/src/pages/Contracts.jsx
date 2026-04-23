@@ -82,20 +82,14 @@ export default function Contracts() {
       setSendResult({ ok: true, ...data })
       load()
     } catch (e) {
-      // Edge function not live yet — fall back to manually updating the row + surfacing URL.
-      const origin = window.location.origin
-      const url = `${origin}/sign?token=${contract.sign_token}`
-      await supabase.from('contracts').update({
-        status: 'sent',
-        sent_at: new Date().toISOString(),
-      }).eq('id', contract.id)
+      // Send failed. Do NOT flip contract.status — leave it in 'draft' so the
+      // operator can retry cleanly. The edge function's own DLQ handles Resend
+      // failures on the backend; this branch only fires when the fetch itself
+      // rejected (network/auth) or the edge fn returned non-2xx.
       setSendResult({
         ok: false,
-        warning: `Edge function not deployed yet — simulated send. Share this URL manually:`,
-        error: e.message,
-        url,
+        error: e.message || String(e),
       })
-      load()
     } finally { setSendBusy(false) }
   }
 
@@ -260,9 +254,8 @@ function ContractDetail({ contract, onEdit, onSend, sendBusy, sendResult, onDism
             <>✓ Sent to {contract.signer_email}</>
           ) : (
             <>
-              <div style={{ fontWeight: 500, marginBottom: 6 }}>{sendResult.warning}</div>
-              <div className="bank-link-url">{sendResult.url}</div>
-              {sendResult.error && <div style={{ fontSize: 11, marginTop: 6, color: 'var(--text-lo)' }}>({sendResult.error})</div>}
+              <div style={{ fontWeight: 500, marginBottom: 6 }}>Send failed — contract still in draft. Try again or check /notifications for details.</div>
+              {sendResult.error && <div style={{ fontSize: 12, color: 'var(--text-lo)' }}>{sendResult.error}</div>}
             </>
           )}
           <button className="btn btn-link" onClick={onDismissSend}>Dismiss</button>

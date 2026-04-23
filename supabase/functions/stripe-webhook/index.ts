@@ -2,7 +2,7 @@
 // Listens for Stripe events and reconciles our DB.
 // No auth — Stripe signs requests with a webhook secret.
 //
-// Handles:
+// Handles (14 events subscribed at endpoint we_1TMvVWRzgnRnD0DtDCBU6iTE):
 //   - payment_intent.succeeded     → mark our row paid (primary since 2026-04-16 — we charge via PaymentIntent, not Stripe Invoice)
 //   - payment_intent.payment_failed → flag overdue + append failure note
 //   - payment_intent.processing    → log only (ACH initiated, clearing)
@@ -13,9 +13,11 @@
 //   - invoice.payment_failed       → legacy: flag overdue (same reason)
 //   - checkout.session.completed   → mark bank_info_on_file=true on setup completions,
 //                                    set customer's default payment method (with fallback alert)
+//   - checkout.session.expired     → notify Case on abandoned bank-link setup
 //   - setup_intent.succeeded       → mark bank_info_on_file=true + ensure default PM (double-safety)
 //   - setup_intent.setup_failed    → notify Case with failure details
-//   - checkout.session.expired     → notify Case on abandoned bank-link setup
+//   - mandate.updated              → if status=inactive (client revoked ACH auth), flip bank_info_on_file=false + notify Case
+//   - payment_method.detached      → if the detached PM was us_bank_account and no fallback bank remains, flip bank_info_on_file=false + notify Case
 //
 // Idempotency: each event.id is recorded in stripe_events_processed on first touch
 // so Stripe retries (same event.id) are no-ops. DB update errors throw so Stripe

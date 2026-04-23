@@ -383,11 +383,12 @@ export default function Contacts() {
       const payload = await resp.json()
       setBankLink({ url: payload.url, client_name: client.legal_name || client.name, client_id: client.id })
     } catch (e) {
-      // Graceful fallback: edge fn not deployed yet. Point to the local CLI.
+      // create-setup-session failed. Surface the real error so Case can
+      // diagnose (most common cause: stripe_customer_id no longer valid on
+      // Stripe, or STRIPE_SECRET_KEY rotated without updating the secret).
       setBankLink({
-        error: e.message,
+        error: e.message || String(e),
         client_id: client.id,
-        fallbackHint: `Edge function not live yet. Until it is, generate a link locally:\n\n  npm run stripe-setup -- ${client.stripe_customer_id} "${client.legal_name || client.name}"`,
       })
     } finally {
       setBankBusy(false)
@@ -758,8 +759,8 @@ function ClientCard({
           )}
           {bankLink && bankLink.error && (
             <div className="bank-link-error">
-              <div>{bankLink.error}</div>
-              {bankLink.fallbackHint && <pre>{bankLink.fallbackHint}</pre>}
+              <div style={{ fontWeight: 500, marginBottom: 6 }}>Bank-link generation failed. Try again, or check /notifications for details.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-lo)' }}>{bankLink.error}</div>
               <button className="btn btn-link" onClick={onDismissBankLink}>Dismiss</button>
             </div>
           )}
