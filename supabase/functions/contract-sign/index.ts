@@ -262,36 +262,68 @@ Deno.serve(async (req: Request) => {
     // doesn't reverse the signature — the sign commit is already
     // permanent; this is lifecycle bookkeeping. Operator can correct
     // manually via the Projects page if needed.
-    if (contract.project_id) {
+    // Hoist today-in-CT once — reused by primary + every related project below.
+    // Use CT to match the cron pipeline. Audit 2026-04-22 A3/A4 MEDIUM:
+    // `new Date().toISOString()` returns UTC, so a contract signed at
+    // 22:00 CT on day N-1 for a project with start_date=N would route
+    // directly to 'active' (skipping 'scheduled') because the UTC date
+    // was already N. `advance-contract-status` + `generate-retainer-invoices`
+    // both compute today via America/Chicago; this aligns with them.
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
+
+    // Advance a single project out of 'draft' based on its start_date.
+    // Returns void — all failures logged + swallowed (sign is already
+    // committed; lifecycle bookkeeping never reverses the signature).
+    const advanceProject = async (projectId: string, label: string) => {
       const { data: proj, error: projReadErr } = await supabase
         .from('projects')
         .select('start_date')
-        .eq('id', contract.project_id)
+        .eq('id', projectId)
         .maybeSingle()
       if (projReadErr) {
-        console.warn(`[contract-sign] project read failed for ${contract.project_id}: ${projReadErr.message}`)
-      } else {
-        // Use CT to match the cron pipeline. Audit 2026-04-22 A3/A4 MEDIUM:
-        // `new Date().toISOString()` returns UTC, so a contract signed at
-        // 22:00 CT on day N-1 for a project with start_date=N would route
-        // directly to 'active' (skipping 'scheduled') because the UTC date
-        // was already N. `advance-contract-status` + `generate-retainer-invoices`
-        // both compute today via America/Chicago; this aligns with them.
-        const todayStr = new Intl.DateTimeFormat('en-CA', {
-          timeZone: 'America/Chicago',
-          year: 'numeric', month: '2-digit', day: '2-digit',
-        }).format(new Date())
-        const startDate = proj?.start_date ?? null
-        const nextStatus = (!startDate || String(startDate).slice(0, 10) <= todayStr) ? 'active' : 'scheduled'
-        const { error: projErr } = await supabase
-          .from('projects')
-          .update({ status: nextStatus, updated_at: signedAt })
-          .eq('id', contract.project_id)
-          .eq('status', 'draft')
-        if (projErr) {
-          console.warn(`[contract-sign] project advance failed for ${contract.project_id}: ${projErr.message}`)
-        }
+        console.warn(`[contract-sign] ${label} read failed for ${projectId}: ${projReadErr.message}`)
+        return
       }
+      if (!proj) {
+        // Defensive: a uuid in related_project_ids that no longer resolves
+        // (deleted project, corrupt backfill). The DB-side trigger prevents
+        // this on write, but we still log + skip so a drift doesn't crash sign.
+        console.warn(`[contract-sign] ${label} ${projectId} not found — skipping advance`)
+        return
+      }
+      const startDate = proj.start_date ?? null
+      const nextStatus = (!startDate || String(startDate).slice(0, 10) <= todayStr) ? 'active' : 'scheduled'
+      const { error: projErr } = await supabase
+        .from('projects')
+        .update({ status: nextStatus, updated_at: signedAt })
+        .eq('id', projectId)
+        .eq('status', 'draft')
+      if (projErr) {
+        console.warn(`[contract-sign] ${label} advance failed for ${projectId}: ${projErr.message}`)
+      }
+    }
+
+    // Advance the primary project.
+    if (contract.project_id) {
+      await advanceProject(contract.project_id, 'primary project')
+    }
+
+    // Hybrid contracts: advance each additional linked project. Added
+    // 2026-04-24 for hybrid buildout+retainer contracts (Madyson et al.)
+    // where a single sign event needs to move >1 project out of draft.
+    // Invoice synthesis for retainers is NOT triggered here — retainer
+    // invoices are owned by the generate-retainer-invoices cron, which
+    // wakes once per month on cycle_day. Firing an invoice here would
+    // double-bill on the first cycle.
+    const relatedIds: string[] = Array.isArray(contract.related_project_ids)
+      ? contract.related_project_ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : []
+    for (const relatedId of relatedIds) {
+      if (relatedId === contract.project_id) continue // belt-and-suspenders, trigger already forbids this
+      await advanceProject(relatedId, 'related project')
     }
 
     // Confirmation emails — fire-and-forget. Includes the signing URL so the
