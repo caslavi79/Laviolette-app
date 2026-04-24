@@ -235,7 +235,7 @@ export default function EditContactModal({ contact, onClose, onSaved }) {
       <form onSubmit={handleSubmit} className="form-grid">
         <TextField id="name" label="Name" span="full" required value={form.name} onChange={set('name')} autoFocus />
         <TextField id="email" type="email" label="Email" value={form.email} onChange={set('email')} />
-        <TextField id="phone" label="Phone" value={form.phone} onChange={set('phone')} placeholder="(512) 555-1234" />
+        <TextField id="phone" label="Phone" value={form.phone} onChange={set('phone')} placeholder="(555) 123-4567" />
         <SelectField id="preferred_contact" label="Preferred contact" value={form.preferred_contact} onChange={set('preferred_contact')} options={PREFERRED_OPTS} placeholder="—" />
         <SelectField id="status" label="Status" value={form.status} onChange={set('status')} options={STATUS_OPTS} />
         <TextareaField id="notes" label="Notes" value={form.notes} onChange={set('notes')} />
